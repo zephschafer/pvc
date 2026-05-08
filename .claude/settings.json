@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mv /Users/zephschafer/Documents/GitHub/pvc /Users/zephschafer/Documents/GitHub/pvc && echo \"Root directory renamed\")"
+    ],
+    "additionalDirectories": [
+      "/Users/zephschafer/Documents/GitHub"
+    ]
+  }
+}
