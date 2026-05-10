@@ -2,13 +2,25 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..config.models import CrsReprojectTransform, Transform
+from ..config.models import ArrayJoinTransform, CrsReprojectTransform, Transform
+from .fetcher import _get_nested
 
 
 def apply_transform(transform: Transform, record: dict) -> Any:
     if isinstance(transform, CrsReprojectTransform):
         return _crs_reproject(transform, record)
+    if isinstance(transform, ArrayJoinTransform):
+        return _array_join(transform, record)
     raise ValueError(f"Unknown transform type: {type(transform)}")
+
+
+def _array_join(t: ArrayJoinTransform, record: dict) -> str | None:
+    value = _get_nested(record, t.path)
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        return str(value)
+    return t.separator.join(str(item) for item in value)
 
 
 def _crs_reproject(t: CrsReprojectTransform, record: dict) -> float | None:

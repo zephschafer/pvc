@@ -115,7 +115,16 @@ class CrsReprojectTransform(BaseModel):
     component: Literal["x", "y"]
 
 
-Transform = CrsReprojectTransform  # extend as new transforms are added
+class ArrayJoinTransform(BaseModel):
+    type: Literal["array_join"]
+    path: str              # dot-notation path to the array field in the raw record
+    separator: str = ","   # delimiter used to join elements
+
+
+Transform = Annotated[
+    Union[CrsReprojectTransform, ArrayJoinTransform],
+    Field(discriminator="type"),
+]
 
 
 class Column(BaseModel):
