@@ -2,7 +2,7 @@
 
 A YAML-driven data ingestion framework for building local Apache Iceberg data lakes. Define pipelines as YAML; pvc handles iteration, schema projection, deduplication, and writing to Iceberg — no boilerplate required.
 
-**pvc is a tool, not a project.** You install it as a dependency in a separate data project repository. See [quipu-data-generator](https://github.com/Data-Dispatch/quipu-data-generator) for a working example.
+You install it as a dependency in a separate data project repository. See [quipu-data-generator](https://github.com/zephschafer/quipu) for a working example.
 
 **New to pvc?** Start with the [quickstart guide](QUICKSTART.md) — a step-by-step walkthrough using a real GitHub pipeline.
 
