@@ -4,3 +4,5 @@ __pycache__/
 *.egg-info/
 dist/
 .claude/settings.json
+testing/test_config.yml
+testing/runs/*/quipu/
