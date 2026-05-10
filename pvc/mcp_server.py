@@ -139,9 +139,12 @@ def run_pipeline(
                     if end:
                         spec.end = end
 
+        from .warehouse_reader import _project_config
+        catalog = _project_config().get("catalog", "local")
+
         buf = io.StringIO()
         with redirect_stdout(buf):
-            _run(pipeline, limit=limit, param_overrides=params or {})
+            _run(pipeline, catalog=catalog, limit=limit, param_overrides=params or {})
         return buf.getvalue()
     except Exception:
         return traceback.format_exc()
