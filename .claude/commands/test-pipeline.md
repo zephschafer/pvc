@@ -10,6 +10,60 @@ The scenario name is passed as an argument (e.g., `/test-pipeline github-repos`)
 
 ---
 
+## Step 0: Set up the clean test environment
+
+Before reading the scenario, create an isolated project directory for this run. Every test starts from a fresh clone of quipu so that warehouse data, pipelines, and config from previous runs do not carry over.
+
+**a. Check for test_config.yml**
+
+Look for `testing/test_config.yml` in the pvc repository. If it does not exist, stop and tell the user:
+
+> `testing/test_config.yml` is missing. Copy `testing/test_config.yml.example` to `testing/test_config.yml` and fill in the credentials needed for this scenario. The file is gitignored and will not be committed.
+
+Do not proceed until the user confirms the file exists.
+
+**b. Determine the run directory**
+
+```
+testing/runs/YYYY-MM-DD-<scenario-name>/
+```
+
+Use today's date. If a `quipu/` subdirectory already exists in that run directory (from a prior attempt), remove it before cloning:
+
+```bash
+rm -rf testing/runs/YYYY-MM-DD-<scenario>/quipu
+```
+
+**c. Clone quipu**
+
+```bash
+git clone https://github.com/zephschafer/quipu.git \
+  testing/runs/YYYY-MM-DD-<scenario>/quipu
+```
+
+The clone will have no `project.yml` (quipu gitignores it) and no warehouse data — a clean slate.
+
+**d. Inject credentials**
+
+Copy `testing/test_config.yml` into the clone as `project.yml`:
+
+```bash
+cp testing/test_config.yml \
+  testing/runs/YYYY-MM-DD-<scenario>/quipu/project.yml
+```
+
+**e. Record the clone path**
+
+Set `CLONE` to the absolute path of the cloned quipu (e.g. `/Users/zephschafer/Documents/GitHub/pvc/testing/runs/2026-05-10-github-repos/quipu`). All subsequent pvc commands target this path via the `PVC_PROJECT_DIR` environment variable.
+
+Shorthand for all CLI commands from this point forward:
+
+```bash
+PVC_PROJECT_DIR=$CLONE uv --directory /Users/zephschafer/Documents/GitHub/pvc run pvc <command>
+```
+
+---
+
 ## Step 1: Read the Scenario
 
 Read the scenario file at `testing/scenarios/<scenario-name>.md`. This defines:
@@ -45,9 +99,20 @@ Proceed through the `new-pipeline` skill steps as if you are a first-time user w
 
 1. Choose source type: `http` or `python`
 2. Design the pipeline YAML (iterate axes, auth, params, schema, build strategy)
-3. If Python connector needed: design and write it to `connectors/<name>.py`
-4. Write the pipeline YAML to `pipelines/<name>.yml`
-5. Validate: use the MCP tool `validate_pipeline` or run `uv run pvc validate <name>`
+3. If Python connector needed: design and write it
+4. Write the pipeline YAML
+5. Validate
+
+**Write files directly to the clone** — do not use MCP write tools (they target the live quipu):
+
+- Connector: write to `$CLONE/connectors/<name>.py`
+- Pipeline YAML: write to `$CLONE/pipelines/<name>.yml`
+
+**Validate using the CLI:**
+
+```bash
+PVC_PROJECT_DIR=$CLONE uv --directory /Users/zephschafer/Documents/GitHub/pvc run pvc validate <name>
+```
 
 **Critical constraint:** Do NOT work around YAML schema limitations by writing custom Python. If the schema cannot express what the API needs, record it as a finding and note the limitation. The test is whether pvc's YAML is expressive enough — not whether Python can compensate.
 
@@ -55,17 +120,37 @@ Proceed through the `new-pipeline` skill steps as if you are a first-time user w
 
 ## Step 4: Iterative Testing
 
-Run and iterate until either success or a blocking finding:
+Run and iterate until either success or a blocking finding.
 
-1. Run `run_pipeline("<name>", limit=1)` via MCP (or `uv run pvc run <name> --limit 1`)
-2. If it fails: diagnose the error. Distinguish between:
-   - **User error** (wrong path, wrong param name) → fix and retry
-   - **pvc bug or schema gap** → record finding, attempt workaround if possible, continue
-3. When `--limit 1` succeeds:
-   - Verify schema projection: check that all expected columns are present and typed correctly
-   - Run full pipeline (or a reasonable subset via `--limit`)
-   - Use `query_warehouse` MCP tool to verify row counts and spot-check data quality
-4. If the full run succeeds: mark success criteria checkboxes
+**Run with limit:**
+
+```bash
+PVC_PROJECT_DIR=$CLONE uv --directory /Users/zephschafer/Documents/GitHub/pvc run pvc run <name> --limit 1
+```
+
+If it fails: diagnose the error. Distinguish between:
+- **User error** (wrong path, wrong param name) → fix and retry
+- **pvc bug or schema gap** → record finding, attempt workaround if possible, continue
+
+**When `--limit 1` succeeds:**
+
+- Verify schema projection: check that all expected columns are present and typed correctly
+- Run full pipeline (or a reasonable subset via `--limit`):
+
+```bash
+PVC_PROJECT_DIR=$CLONE uv --directory /Users/zephschafer/Documents/GitHub/pvc run pvc run <name>
+```
+
+**Query the clone's warehouse** to verify row counts and spot-check data quality. The warehouse lives at `$CLONE/warehouse/`. Query it directly:
+
+```bash
+PVC_PROJECT_DIR=$CLONE uv --directory /Users/zephschafer/Documents/GitHub/pvc run python -c \
+  "from pvc.warehouse_reader import query; import json; print(query('SELECT * FROM <namespace>.<table> LIMIT 10'))"
+```
+
+Or read the Parquet files directly with DuckDB if simpler.
+
+**Mark success criteria checkboxes** if the full run succeeds.
 
 ---
 
@@ -73,7 +158,7 @@ Run and iterate until either success or a blocking finding:
 
 ### Create the run directory and report
 
-Create `testing/runs/YYYY-MM-DD-<scenario-name>/` with:
+The run directory (`testing/runs/YYYY-MM-DD-<scenario-name>/`) was created in Step 0. Add to it:
 
 **`report.md`** — structured findings report:
 
@@ -109,9 +194,9 @@ See pipeline.yml in this directory. (copy the final YAML here if it worked)
 ...
 ```
 
-**`pipeline.yml`** — the pipeline YAML that was produced (even if it only partially worked)
+**`pipeline.yml`** — copy from `$CLONE/pipelines/<name>.yml` (even if it only partially worked)
 
-**`connector.py`** — the Python connector if one was written
+**`connector.py`** — copy from `$CLONE/connectors/<name>.py` if one was written
 
 ### Update the central tracker
 
