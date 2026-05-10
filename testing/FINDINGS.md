@@ -1,6 +1,6 @@
 # pvc Core Limitations Tracker
 
-Last updated: 2026-05-10 | Total findings: 25 | Open: 2 | Fixed: 23
+Last updated: 2026-05-10 | Total findings: 29 | Open: 4 | Fixed: 25
 
 ## Severity Definitions
 
@@ -28,8 +28,10 @@ Last updated: 2026-05-10 | Total findings: 25 | Open: 2 | Fixed: 23
 
 | ID | Severity | Category | Summary | Scenario |
 |----|----------|----------|---------|----------|
-| F-024 | Enhancement | Skill | `new-pipeline` skill missing decision guidance on when to use `type: python` vs `type: http` (e.g. GraphQL POST body, cursor pagination) | python-connector |
-| F-025 | Enhancement | Skill | `new-pipeline` skill doesn't document auth pattern for Python connectors — `PythonSource` has no `auth` field; correct pattern (pass key as `{{ env.VAR }}` param) is undocumented | python-connector |
+| F-026 | Major | Runtime | `pvc gcp setup` fails when the warehouse bucket already exists — Terraform 409 conflict; any re-run of setup on an existing project fails | gcp-data-lake |
+| F-027 | Minor | UX | `pvc gcp teardown` reports "GCP resources destroyed" even when it skipped all deletion steps (no `tf_state_bucket`/`sa_email` in project.yml) | gcp-data-lake |
+| F-028 | Minor | UX | `setup_error` written to project.yml after a failed setup contains raw ANSI terminal escape codes, making the file unreadable in a text editor | gcp-data-lake |
+| F-029 | Enhancement | Skill | `new-pipeline` skill has no mention of `catalog: gcp` or `pvc gcp setup` — users building for production have no guidance that a GCP deployment path exists | gcp-data-lake |
 
 ---
 
@@ -60,6 +62,8 @@ Last updated: 2026-05-10 | Total findings: 25 | Open: 2 | Fixed: 23
 | F-021 | Querying local-only table in GCP mode gave cryptic DuckDB CatalogException | `warehouse_reader.py` — _resolve_table_refs() now falls back to local read_parquet() for tables not in GCS | `2f5d057` |
 | F-022 | MCP `run_pipeline` ignored `catalog: gcp` — always wrote to local warehouse | `mcp_server.py` — reads `_project_config().get("catalog", "local")` before calling runner | `c8ea972` |
 | F-023 | Connector exceptions showed only `fetch error: {e}` — no traceback, no failure summary | `runner.py` — adds exception class, full traceback (indented), and 3-state completion line (complete / complete with errors / FAILED) | `a1041e0` |
+| F-024 | `new-pipeline` skill missing decision guidance on when to use `type: python` vs `type: http` | `new-pipeline.md` — added decision table with GraphQL, cursor pagination, and HTML scraping as explicit python triggers; quick rule of thumb | `11cdd85` |
+| F-025 | `new-pipeline` skill didn't document auth pattern for Python connectors — `PythonSource` has no `auth` field | `new-pipeline.md` — added "auth pattern" section under `type: python` showing how to pass key as static param with `{{ env.VAR }}` and read from `dynamic_params` | |
 
 ---
 
