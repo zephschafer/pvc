@@ -196,7 +196,39 @@ SELECT COUNT(*) FROM my_pipeline.my_pipeline
 
 If the count grows on re-run, the primary key is not matching correctly — check that the `id` or key field is constructed deterministically (same inputs always produce the same key).
 
-## 10. Done
+## 10. (Optional) Deploy to GCP
+
+If the user wants this pipeline to run on a schedule in the cloud rather than just locally, pvc supports deploying to GCP via Cloud Composer (Airflow) + Cloud Run.
+
+**Prerequisites — run once per project:**
+```bash
+pvc gcp setup --project-id <gcp-project-id> --region us-central1
+```
+This provisions a GCS warehouse bucket and a service account. Set `catalog: gcp` in `project.yml` (or re-run `pvc init`).
+
+**Enable required GCP APIs:**
+```bash
+gcloud services enable composer.googleapis.com run.googleapis.com \
+  cloudbuild.googleapis.com artifactregistry.googleapis.com
+```
+
+**Add a `deploy:` block to the pipeline YAML:**
+```yaml
+deploy:
+  schedule: "0 8 * * *"   # cron expression — required
+  paused: false             # optional, default false
+```
+
+**Deploy with one command:**
+```bash
+pvc deploy <pipeline-name>    # provisions Cloud Run job + Composer DAG
+pvc undeploy <pipeline-name>  # tears down job/DAG without touching data
+pvc deploy-status             # list all deployed pipelines
+```
+
+Only suggest this step if the user has asked about scheduling, production deployment, or running without manual intervention.
+
+## 11. Done
 
 Report:
 - Pipeline name and warehouse table location (`namespace.table`)

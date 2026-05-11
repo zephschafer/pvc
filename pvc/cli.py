@@ -4,6 +4,8 @@ import os
 import re
 from pathlib import Path
 
+_ANSI_RE = re.compile(r'\x1b\[[0-9;]*[mGKHJF]')
+
 import typer
 import yaml
 
@@ -221,7 +223,7 @@ def gcp_setup(
         typer.echo(f"  Service account:  {sa_email}")
 
     except Exception as e:
-        gcp.update({"setup_status": "failed", "setup_error": str(e)})
+        gcp.update({"setup_status": "failed", "setup_error": _ANSI_RE.sub("", str(e))})
         cfg["gcp"] = gcp
         _save_config(cfg)
         typer.echo(f"\nSetup failed: {e}", err=True)
@@ -256,6 +258,8 @@ def gcp_teardown(
         typer.echo(str(e), err=True)
         raise typer.Exit(1)
 
+    destroyed: list[str] = []
+
     tf_state_bucket = gcp.get("tf_state_bucket", "")
     if tf_state_bucket:
         typer.echo("Running terraform destroy (warehouse bucket)...")
@@ -266,6 +270,7 @@ def gcp_teardown(
                 sa_email=gcp.get("sa_email", ""),
                 tf_state_bucket=tf_state_bucket,
             )
+            destroyed.append("warehouse bucket")
         except Exception as e:
             typer.echo(f"  terraform destroy failed (continuing): {e}", err=True)
 
@@ -274,6 +279,7 @@ def gcp_teardown(
         typer.echo("Deleting Secret Manager secret...")
         try:
             bootstrap.delete_secret(secret_name, credentials)
+            destroyed.append("SA key secret")
         except Exception as e:
             typer.echo(f"  secret delete failed (continuing): {e}", err=True)
 
@@ -282,13 +288,18 @@ def gcp_teardown(
         typer.echo("Deleting service account...")
         try:
             bootstrap.delete_service_account(project_id, sa_email, credentials)
+            destroyed.append("service account")
         except Exception as e:
             typer.echo(f"  service account delete failed (continuing): {e}", err=True)
 
     cfg.pop("gcp", None)
     cfg["catalog"] = "local"
     _save_config(cfg)
-    typer.echo("\nGCP resources destroyed. project.yml reset to catalog: local.")
+
+    if destroyed:
+        typer.echo(f"\nDestroyed: {', '.join(destroyed)}. project.yml reset to catalog: local.")
+    else:
+        typer.echo("\nNo GCP resources were found to destroy. project.yml reset to catalog: local.")
 
 
 @gcp_app.command("status")

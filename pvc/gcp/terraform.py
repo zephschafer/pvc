@@ -5,6 +5,9 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from google.api_core.exceptions import NotFound, Forbidden
+from google.cloud import storage
+
 logger = logging.getLogger(__name__)
 
 _MODULE_DIR = Path(__file__).parent.parent / "infra" / "modules" / "gcp"
@@ -43,6 +46,9 @@ def provision(
         ],
         _WORK_DIR, env,
     )
+
+    # Import any already-existing resources so apply doesn't fail with 409
+    _import_existing_resources(project_id, _WORK_DIR, env)
 
     _run(
         [
@@ -94,6 +100,29 @@ def destroy(
         ],
         _WORK_DIR, env,
     )
+
+
+def _import_existing_resources(project_id: str, work_dir: Path, env: dict) -> None:
+    """Import already-existing GCP resources into Terraform state to avoid 409 on apply."""
+    warehouse_bucket = f"pvc-warehouse-{project_id}"
+    client = storage.Client(project=project_id)
+    try:
+        client.get_bucket(warehouse_bucket)
+    except (NotFound, Forbidden):
+        return  # bucket doesn't exist yet — apply will create it
+
+    # Bucket exists; import it so terraform apply doesn't try to create it again
+    result = subprocess.run(
+        ["terraform", "import", "google_storage_bucket.warehouse", warehouse_bucket],
+        cwd=str(work_dir), env=env, capture_output=True, text=True,
+    )
+    if result.returncode == 0:
+        logger.info("Imported existing warehouse bucket '%s' into Terraform state", warehouse_bucket)
+    elif "already managed by Terraform" in result.stdout + result.stderr:
+        logger.info("Warehouse bucket '%s' already in Terraform state", warehouse_bucket)
+    else:
+        # Import failed for an unexpected reason — log and continue; apply may still succeed
+        logger.warning("terraform import returned non-zero: %s", result.stderr[-500:])
 
 
 def _run(cmd: list[str], cwd: Path, env: dict) -> None:
