@@ -1,91 +1,15 @@
 """Dataflow Flex Template entrypoint: reads from Pub/Sub, projects through
-the pipeline schema, and writes windowed Parquet files to GCS."""
+the pipeline schema, and writes windowed Parquet files to GCS (or a local path
+when --output_path is provided for DirectRunner testing)."""
 
 from __future__ import annotations
 
 import argparse
-import json
 import logging
-from datetime import datetime, timezone
-from pathlib import Path
 
-import pyarrow as pa
-import yaml
+from pvc.gcp._pipeline_utils import load_columns, to_pyarrow_schema, project_message
 
 logger = logging.getLogger(__name__)
-
-_TYPE_MAP: dict[str, pa.DataType] = {
-    "string": pa.string(),
-    "integer": pa.int64(),
-    "float": pa.float64(),
-    "boolean": pa.bool_(),
-    "timestamp": pa.timestamp("us", tz="UTC"),
-    "date": pa.date32(),
-}
-
-
-def _load_columns(pipeline_name: str) -> list[dict]:
-    path = Path("pipelines") / f"{pipeline_name}.yml"
-    data = yaml.safe_load(path.read_text())
-    return data["schema"]["columns"]
-
-
-def _to_pyarrow_schema(columns: list[dict]) -> pa.Schema:
-    fields = [
-        pa.field(col["name"], _TYPE_MAP.get(col.get("type", "string"), pa.string()))
-        for col in columns
-    ]
-    return pa.schema(fields)
-
-
-def _cast_value(value, col_type: str | None):
-    if value is None:
-        return None
-    if col_type == "integer":
-        return int(value)
-    if col_type == "float":
-        return float(value)
-    if col_type == "boolean":
-        return bool(value)
-    if col_type == "timestamp":
-        if isinstance(value, str):
-            for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%S%z"):
-                try:
-                    dt = datetime.strptime(value.rstrip("Z") + "+00:00", fmt.replace("Z", "%z"))
-                    return dt.astimezone(timezone.utc)
-                except ValueError:
-                    continue
-        return value
-    if col_type == "date":
-        if isinstance(value, str):
-            try:
-                return datetime.strptime(value, "%Y-%m-%d").date()
-            except ValueError:
-                return value
-        return value
-    return str(value) if value is not None else None
-
-
-def _project_message(msg_bytes: bytes, columns: list[dict]) -> dict | None:
-    try:
-        record = json.loads(msg_bytes.decode("utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        logger.warning("Skipping unparseable Pub/Sub message")
-        return None
-
-    row: dict = {}
-    for col in columns:
-        path = col.get("path") or col["name"]
-        parts = path.split(".")
-        val = record
-        for part in parts:
-            if isinstance(val, dict):
-                val = val.get(part)
-            else:
-                val = None
-                break
-        row[col["name"]] = _cast_value(val, col.get("type"))
-    return row
 
 
 def run() -> None:
@@ -98,16 +22,24 @@ def run() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pipeline_name", required=True)
     parser.add_argument("--subscription", required=True)
-    parser.add_argument("--warehouse_bucket", required=True)
+    parser.add_argument("--warehouse_bucket", default=None)
+    parser.add_argument("--output_path", default=None,
+                        help="Local output path prefix; overrides --warehouse_bucket")
     parser.add_argument("--window_seconds", type=int, default=60)
     known_args, pipeline_args = parser.parse_known_args()
 
-    columns = _load_columns(known_args.pipeline_name)
-    schema = _to_pyarrow_schema(columns)
-    output_prefix = (
-        f"gs://{known_args.warehouse_bucket}"
-        f"/{known_args.pipeline_name}/{known_args.pipeline_name}/data/"
-    )
+    if known_args.output_path:
+        output_prefix = known_args.output_path
+    elif known_args.warehouse_bucket:
+        output_prefix = (
+            f"gs://{known_args.warehouse_bucket}"
+            f"/{known_args.pipeline_name}/{known_args.pipeline_name}/data/"
+        )
+    else:
+        raise ValueError("Either --output_path or --warehouse_bucket must be provided")
+
+    columns = load_columns(known_args.pipeline_name)
+    schema = to_pyarrow_schema(columns)
 
     options = PipelineOptions(pipeline_args)
     options.view_as(StandardOptions).streaming = True
@@ -116,9 +48,7 @@ def run() -> None:
         (
             p
             | "ReadPubSub" >> ReadFromPubSub(subscription=known_args.subscription)
-            | "ParseAndProject" >> beam.Map(
-                _project_message, columns=columns
-            )
+            | "ParseAndProject" >> beam.Map(project_message, columns=columns)
             | "FilterNone" >> beam.Filter(lambda x: x is not None)
             | "Window" >> beam.WindowInto(FixedWindows(known_args.window_seconds))
             | "WriteParquet" >> WriteToParquet(

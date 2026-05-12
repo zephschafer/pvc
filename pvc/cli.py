@@ -361,7 +361,7 @@ def _require_gcp_config() -> tuple[dict, dict]:
 def deploy(
     pipeline_name: str = typer.Argument(..., help="Pipeline name (without .yml)"),
 ):
-    """Deploy a pipeline as a scheduled batch job or streaming job on GCP."""
+    """Deploy a pipeline locally (Docker) or to GCP based on catalog in project.yml."""
     from .config import load_pipeline
     from .config.models import PubSubSource
 
@@ -390,10 +390,55 @@ def deploy(
         )
         raise typer.Exit(1)
 
-    cfg, gcp = _require_gcp_config()
-
+    catalog = _get_catalog()
     deploy_type = pipeline.deploy.type
+
     try:
+        if catalog == "local":
+            from . import local_deploy
+            subscription = None
+            if deploy_type == "streaming":
+                if not isinstance(pipeline.source, PubSubSource):
+                    typer.echo(
+                        "Error: deploy.type: streaming requires source.type: pubsub", err=True
+                    )
+                    raise typer.Exit(1)
+                subscription = pipeline.source.subscription
+                typer.echo(f"Deploying '{pipeline_name}' (local streaming, Kafka)...")
+            else:
+                typer.echo(f"Deploying '{pipeline_name}' (local batch, Docker)...")
+
+            cfg = _load_config()
+            state = local_deploy.deploy(
+                pipeline_name=pipeline_name,
+                deployment=pipeline.deploy,
+                project_root=_project_root(),
+                subscription=subscription,
+            )
+            cfg.setdefault("deployments", {})[pipeline_name] = state
+            _save_config(cfg)
+
+            typer.echo(f"\nDeployed '{pipeline_name}' successfully.")
+            if deploy_type == "streaming":
+                typer.echo(f"  Type:         streaming (local Docker + Kafka)")
+                typer.echo(f"  Kafka:        {state['kafka_container']}  ({state['kafka_external_bootstrap']})")
+                typer.echo(f"  Runner:       {state['runner_container']}")
+                typer.echo(f"  Warehouse:    {state['warehouse_path']}")
+                typer.echo(f"  Window:       {state['window_seconds']}s")
+                typer.echo(f"  To publish:   pvc publish {pipeline_name} '{{\"field\": \"value\"}}'")
+            else:
+                typer.echo(f"  Type:         batch (local Docker)")
+                typer.echo(f"  Image:        {state['image_tag']}")
+                typer.echo(f"  Warehouse:    {state['warehouse_path']}")
+                typer.echo(
+                    f"  To run again: docker run --rm "
+                    f"-e PIPELINE_NAME={pipeline_name} "
+                    f"-v {state['warehouse_path']}:/app/warehouse "
+                    f"{state['image_tag']}"
+                )
+            return
+
+        cfg, gcp = _require_gcp_config()
         if deploy_type == "streaming":
             from .gcp import streaming_deploy
             assert isinstance(pipeline.source, PubSubSource)
@@ -418,6 +463,8 @@ def deploy(
                 project_root=_project_root(),
                 gcp_config=gcp,
             )
+    except (typer.Exit, SystemExit):
+        raise
     except Exception as e:
         typer.echo(f"\nDeploy failed: {e}", err=True)
         raise typer.Exit(1)
@@ -427,7 +474,7 @@ def deploy(
 
     typer.echo(f"\nDeployed '{pipeline_name}' successfully.")
     if deploy_type == "streaming":
-        typer.echo(f"  Type:         streaming")
+        typer.echo(f"  Type:         streaming (GCP Dataflow)")
         typer.echo(f"  Dataflow job: {state['dataflow_job_name']}")
         typer.echo(f"  Subscription: {state['subscription']}")
         typer.echo(f"  Window:       {state['window_seconds']}s")
@@ -443,9 +490,7 @@ def undeploy(
     pipeline_name: str = typer.Argument(..., help="Pipeline name (without .yml)"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
 ):
-    """Remove a deployed pipeline's Cloud Run job and Composer DAG (warehouse data is untouched)."""
-    from .gcp import batch_deploy
-
+    """Stop and remove a deployed pipeline (warehouse data is untouched)."""
     cfg = _load_config()
     deployments = cfg.get("deployments", {})
 
@@ -458,11 +503,27 @@ def undeploy(
         raise typer.Exit(1)
 
     deployment = deployments[pipeline_name]
-    _, gcp = _require_gcp_config()
-
+    catalog = _get_catalog()
     deploy_type = deployment.get("type", "batch")
+    is_local = "kafka_container" in deployment or (
+        "image_tag" in deployment and "dag_id" not in deployment
+    )
+
     if not yes:
-        if deploy_type == "streaming":
+        if is_local:
+            if deploy_type == "streaming":
+                typer.confirm(
+                    f"Stop and remove local Docker containers for '{pipeline_name}'? "
+                    "(warehouse data will NOT be deleted)",
+                    abort=True,
+                )
+            else:
+                typer.confirm(
+                    f"Remove local Docker image for '{pipeline_name}'? "
+                    "(warehouse data will NOT be deleted)",
+                    abort=True,
+                )
+        elif deploy_type == "streaming":
             typer.confirm(
                 f"Drain and remove Dataflow job '{deployment.get('dataflow_job_name', pipeline_name)}'? "
                 "(warehouse data will NOT be deleted)",
@@ -470,14 +531,19 @@ def undeploy(
             )
         else:
             typer.confirm(
-                f"Remove Cloud Run job '{deployment['cloud_run_job']}' and "
-                f"Composer DAG '{deployment['dag_id']}'? (warehouse data will NOT be deleted)",
+                f"Remove Cloud Run job '{deployment.get('cloud_run_job', pipeline_name)}' and "
+                f"Composer DAG '{deployment.get('dag_id', pipeline_name)}'? "
+                "(warehouse data will NOT be deleted)",
                 abort=True,
             )
 
     typer.echo(f"Undeploying '{pipeline_name}'...")
     try:
-        if deploy_type == "streaming":
+        if is_local:
+            from . import local_deploy
+            local_deploy.undeploy(pipeline_name, deployment)
+        elif deploy_type == "streaming":
+            _, gcp = _require_gcp_config()
             from .gcp import streaming_deploy
             streaming_deploy.undeploy(
                 pipeline_name=pipeline_name,
@@ -485,6 +551,7 @@ def undeploy(
                 gcp_config=gcp,
             )
         else:
+            _, gcp = _require_gcp_config()
             from .gcp import batch_deploy
             batch_deploy.undeploy(
                 pipeline_name=pipeline_name,
@@ -523,17 +590,74 @@ def deploy_status(
 
     for name, state in targets.items():
         typer.echo(f"\n{name}")
-        if state.get("type") == "streaming":
-            typer.echo(f"  Type:         streaming")
+        if "kafka_container" in state:
+            typer.echo(f"  Type:         streaming (local Docker + Kafka)")
+            typer.echo(f"  Kafka:        {state.get('kafka_container', '-')}  ({state.get('kafka_external_bootstrap', '-')})")
+            typer.echo(f"  Runner:       {state.get('runner_container', '-')}")
+            typer.echo(f"  Topic:        {state.get('kafka_topic', '-')}")
+            typer.echo(f"  Window:       {state.get('window_seconds', '-')}s")
+        elif state.get("type") == "batch" and "image_tag" in state and "dag_id" not in state:
+            typer.echo(f"  Type:         batch (local Docker)")
+            typer.echo(f"  Image:        {state.get('image_tag', '-')}")
+        elif state.get("type") == "streaming":
+            typer.echo(f"  Type:         streaming (GCP Dataflow)")
             typer.echo(f"  Dataflow job: {state.get('dataflow_job_name', '-')}")
             typer.echo(f"  Subscription: {state.get('subscription', '-')}")
             typer.echo(f"  Window:       {state.get('window_seconds', '-')}s")
         else:
+            typer.echo(f"  Type:         batch (GCP)")
             typer.echo(f"  Schedule:     {state.get('schedule', '-')}")
             typer.echo(f"  DAG:          {state.get('dag_id', '-')}")
             typer.echo(f"  Cloud Run:    {state.get('cloud_run_job', '-')}")
             typer.echo(f"  Composer env: {state.get('composer_env', '-')}")
         typer.echo(f"  Deployed at:  {state.get('deployed_at', '-')}")
+
+
+@app.command()
+def publish(
+    pipeline_name: str = typer.Argument(..., help="Pipeline name"),
+    message: str = typer.Argument(..., help="JSON message body to publish"),
+    count: int = typer.Option(1, "--count", "-n", help="Number of times to publish the message"),
+):
+    """Publish a JSON message to the local Kafka topic for a deployed streaming pipeline."""
+    import json
+
+    cfg = _load_config()
+    state = cfg.get("deployments", {}).get(pipeline_name)
+    if not state:
+        typer.echo(
+            f"Error: '{pipeline_name}' is not deployed. Run: pvc deploy {pipeline_name}",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    if state.get("type") != "streaming":
+        typer.echo(
+            f"Error: '{pipeline_name}' is a batch deployment. pvc publish only works for streaming.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    if "kafka_topic" not in state:
+        typer.echo(
+            f"Error: '{pipeline_name}' is deployed on GCP, not locally. "
+            "Use gcloud pubsub topics publish to inject messages.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    try:
+        json.loads(message)
+    except json.JSONDecodeError as e:
+        typer.echo(f"Error: message is not valid JSON: {e}", err=True)
+        raise typer.Exit(1)
+
+    from . import local_deploy
+    local_deploy.publish(pipeline_name, state, message, count)
+
+    noun = "message" if count == 1 else "messages"
+    typer.echo(f"Published {count} {noun} to topic '{state['kafka_topic']}'.")
+    typer.echo(f"Data will appear in warehouse after the {state['window_seconds']}s window closes.")
 
 
 # ------------------------------------------------------------------ #
