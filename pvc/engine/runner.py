@@ -16,8 +16,12 @@ def run_pipeline(
     limit: int | None = None,
     param_overrides: dict | None = None,
 ) -> None:
-    from pvc.spark_session import get_spark
-    spark = get_spark("pvc")
+    # GCS write path bypasses Spark entirely — skip JVM startup
+    if catalog == "gcp":
+        spark = None
+    else:
+        from pvc.spark_session import get_spark
+        spark = get_spark("pvc")
 
     param_defs = {p.name: p for p in pipeline.source.params}
     request_sequence = build_request_sequence(pipeline.source.iterate, param_defs)
@@ -77,4 +81,5 @@ def run_pipeline(
     else:
         print(f"\n[pvc] '{pipeline.name}' complete → {dest}\n")
 
-    spark.stop()
+    if spark is not None:
+        spark.stop()
