@@ -1,6 +1,6 @@
 # pvc Feature Registry
 
-Last updated: 2026-05-11 | Total: 1 | Active: 0 | Complete: 0 | Draft: 1
+Last updated: 2026-05-12 | Total: 2 | Active: 0 | Complete: 0 | Draft: 2
 
 ## Status Definitions
 
@@ -18,7 +18,7 @@ Last updated: 2026-05-11 | Total: 1 | Active: 0 | Complete: 0 | Draft: 1
 
 | Feature Set | Features |
 |-------------|---------|
-| pipeline-deployment | batch-deployment, streaming-deployment (planned) |
+| pipeline-deployment | batch-deployment, streaming-deployment |
 
 ---
 
@@ -27,6 +27,7 @@ Last updated: 2026-05-11 | Total: 1 | Active: 0 | Complete: 0 | Draft: 1
 | ID | Name | Status | Summary | Scenarios |
 |----|------|--------|---------|-----------|
 | batch-deployment | Batch Pipeline Deployment | Draft | Deploy any pvc pipeline as a scheduled GCP batch job with one CLI command (Composer + Cloud Run) | batch-deployment |
+| streaming-deployment | Streaming Pipeline Deployment | Draft | Deploy a Pub/Sub-sourced pipeline as a continuous Beam/Dataflow job writing windowed Parquet to GCS | streaming-deployment |
 
 ---
 
