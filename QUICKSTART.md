@@ -31,6 +31,9 @@ dependencies = ["pvc"]
 
 [tool.uv]
 package = false
+
+[tool.uv.sources]
+pvc = { git = "https://github.com/zephschafer/pvc.git" }
 ```
 
 **`project.yml`** (gitignore this file — it holds your credentials):
