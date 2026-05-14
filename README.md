@@ -7,25 +7,17 @@ It works like this
 2. ddt builds and runs the pipeline
 3. Data lake has data
 
----
-
 ## Quickstart 
-
-# ddt Quickstart
 
 This guide walks you from zero to a working data pipeline. The example ingests your private GitHub repositories — it covers credentials, schema projection, and warehouse querying in a single concrete run.
 
----
-
-## Prerequisites
+### Prerequisites
 
 - Python 3.12+
 - [uv](https://docs.astral.sh/uv/)
 - Java (required by PySpark — `java -version` to check)
 
----
-
-## 1. Create a project
+### 1. Create a project
 
 ddt is a tool you depend on, not a repo you clone. Create a fresh directory:
 
@@ -76,7 +68,7 @@ uv run ddt validate all
 
 ---
 
-## 2. Store your credentials
+### 2. Store your credentials
 
 ```bash
 # Run a pipeline
@@ -110,7 +102,7 @@ uv run ddt mcp setup-desktop   # registers ddt in Claude Desktop's config
 
 ---
 
-## 3. Write a pipeline
+### 3. Write a pipeline
 
 Create `pipelines/github_repos.yml`:
 
@@ -231,7 +223,7 @@ A few things to notice:
 
 ---
 
-## 4. Validate
+### 4. Validate
 
 ```bash
 uv run ddt validate github_repos
@@ -251,7 +243,7 @@ spark.sql("SELECT neighborhood, COUNT(*) FROM local.craigslist_apts.craigslist_a
 
 ---
 
-## 5. Test with one iteration
+### 5. Test with one iteration
 
 ```bash
 uv run ddt run github_repos --limit 1
@@ -280,7 +272,7 @@ fetch error: 401 Client Error: Unauthorized for url: https://api.github.com/user
 
 ---
 
-## 6. Query the warehouse
+### 6. Query the warehouse
 
 Data is written as Parquet files and is immediately queryable with DuckDB (no JVM startup):
 
@@ -312,7 +304,7 @@ catalog: local              # local | gcp
 
 ---
 
-## 7. Run fully and verify deduplication
+### 7. Run fully and verify deduplication
 
 ```bash
 gcloud auth application-default login
