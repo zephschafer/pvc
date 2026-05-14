@@ -10,7 +10,7 @@ variable "region" {
 
 variable "pipeline_name" {
   type        = string
-  description = "pvc pipeline name (e.g. github_repos)"
+  description = "ddt pipeline name (e.g. github_repos)"
 }
 
 variable "image_uri" {
@@ -23,17 +23,18 @@ variable "sa_email" {
   description = "Service account email for the Cloud Run job"
 }
 
-variable "dag_bucket" {
+variable "build_context" {
   type        = string
-  description = "GCS bucket name for the Composer DAGs (no gs:// prefix)"
+  description = "Absolute path to the stable build context directory"
 }
 
-variable "dag_blob_name" {
+variable "content_hash" {
   type        = string
-  description = "Full blob path for the DAG file within the bucket (e.g. dags/github_repos.py)"
+  description = "SHA256 of build context files — triggers Cloud Build rebuild when changed"
 }
 
-variable "dag_content" {
-  type        = string
-  description = "Full Python content of the generated Airflow DAG file"
+variable "java_enabled" {
+  type        = bool
+  default     = false
+  description = "Install OpenJDK in the container (false for GCP — uses PyArrow direct write)"
 }

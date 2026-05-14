@@ -1,12 +1,17 @@
-You are running the ddt testing process for a specific scenario. Your job is to act as a first-time ddt user attempting to build a real pipeline, while also acting as a disciplined QA engineer who records every failure, friction point, and gap precisely.
+You are running a ddt feature test for a specific scenario. Your job is to act as a disciplined QA engineer who executes scenario phases precisely, records every failure, friction point, and gap, and — for data pipeline scenarios — also acts as a first-time ddt user attempting to build a real pipeline.
 
 ## What You Are Testing
 
-ddt is a YAML-driven data ingestion framework and Claude plugin (CLI + skills + MCP server). The core promise is that a user can say "build me a pipeline for X" and Claude can successfully orchestrate a working pipeline end-to-end. You are testing whether that promise is true for the given scenario.
+ddt is a YAML-driven data ingestion framework and Claude plugin (CLI + skills + MCP server). Scenarios fall into two types:
+
+- **Pipeline scenarios** — test whether a user can build and run a working data pipeline against a real external API (e.g. `github-repos`, `stripe-payments`). The core question is whether ddt's YAML schema is expressive enough and the pipeline runs correctly end-to-end.
+- **Feature scenarios** — test whether a new ddt feature (CLI command, infrastructure provisioning, config schema) works as designed (e.g. `batch-deployment`, `streaming-deployment`). The core question is whether the implemented feature meets its acceptance criteria.
+
+Determine the scenario type in Step 1. Steps 2 and 3 differ by type.
 
 ## Arguments
 
-The scenario name is passed as an argument (e.g., `/test-pipeline github-repos`). If no argument is given, ask the user which scenario to run.
+The scenario name is passed as an argument (e.g., `/test-feature github-repos`). If no argument is given, ask the user which scenario to run.
 
 ---
 
@@ -67,20 +72,27 @@ DDT_PROJECT_DIR=$CLONE uv --directory /Users/zephschafer/Documents/GitHub/ddt ru
 ## Step 1: Read the Scenario
 
 Read the scenario file at `testing/scenarios/<scenario-name>.md`. This defines:
-- The target API and goal
+- The goal and core question
+- Test phases with numbered steps and success conditions
 - Success criteria (checklist)
-- Known complexity
+- Known complexity and expected findings
 - Credentials required
+
+**Determine the scenario type** from the "Target API" or "Target Component" section:
+- If it names an **external API** (GitHub, Stripe, Jira, etc.) → **Pipeline scenario** — follow Steps 2 and 3 as written for pipeline scenarios.
+- If it names a **ddt CLI command, module, or infrastructure component** → **Feature scenario** — skip Step 2 (API probing) and follow the feature scenario path in Step 3.
 
 Also read:
 - `README.md` — the full ddt YAML schema reference
-- `.claude/commands/new-pipeline.md` — the existing skill you will simulate using
 - `testing/FINDINGS.md` — existing findings (so you don't re-report known issues)
 - Any prior runs for this scenario in `testing/runs/` (to build on prior work)
+- For pipeline scenarios: `.claude/commands/new-pipeline.md` — the skill you will simulate
 
 ---
 
-## Step 2: Probe the API
+## Step 2: Investigate the target
+
+### Pipeline scenarios — Probe the API
 
 Before writing any pipeline, investigate the target API as a real user would:
 
@@ -89,11 +101,22 @@ Before writing any pipeline, investigate the target API as a real user would:
 - Record: response structure, pagination mechanism, auth mechanism, array/nested fields, date field formats, rate limits
 - Note anything that seems hard to express in ddt's current YAML schema
 
-Do NOT skip this step. Understanding the real API response is essential to accurate testing.
+Do NOT skip this step for pipeline scenarios. Understanding the real API response is essential to accurate testing.
+
+### Feature scenarios — Review prerequisites
+
+Before executing any phases, verify the prerequisites listed in the scenario:
+
+- Check that required GCP APIs are enabled (if applicable)
+- Verify credentials in `project.yml` match what the scenario requires
+- Check for any prior run artifacts (Terraform state, provisioned resources) that could affect a clean run
+- Read any implementation plan at `design/<slug>-plan.md` if it exists — understand what was built and in what order
 
 ---
 
-## Step 3: Attempt Pipeline Creation (Simulating the new-pipeline Skill)
+## Step 3: Execute the scenario
+
+### Pipeline scenarios — Attempt Pipeline Creation
 
 Proceed through the `new-pipeline` skill steps as if you are a first-time user who just installed ddt:
 
@@ -116,9 +139,26 @@ DDT_PROJECT_DIR=$CLONE uv --directory /Users/zephschafer/Documents/GitHub/ddt ru
 
 **Critical constraint:** Do NOT work around YAML schema limitations by writing custom Python. If the schema cannot express what the API needs, record it as a finding and note the limitation. The test is whether ddt's YAML is expressive enough — not whether Python can compensate.
 
+### Feature scenarios — Execute scenario phases
+
+Work through each phase defined in the scenario file in order. For each phase:
+
+1. Execute the numbered steps exactly as written
+2. Record the actual output of every command — do not paraphrase
+3. If a step fails, diagnose and distinguish:
+   - **Missing implementation** (feature code not yet written) → record as Blocking finding, do not work around it, proceed to the next phase if possible
+   - **User error or misconfiguration** → fix and retry
+   - **ddt bug in existing code** → record as finding, attempt workaround only if the scenario explicitly allows it
+4. Check the phase success condition — record whether it passed or failed
+5. Do not advance to the next phase if the current phase's success condition failed, unless the scenario explicitly says to continue
+
+**Critical constraint for feature scenarios:** Do NOT implement missing feature code to make a test pass. If `ddt deploy` doesn't exist yet, record that as a Blocking finding and stop that phase. The test is whether the implemented feature works — not whether you can implement it inline.
+
 ---
 
-## Step 4: Iterative Testing
+## Step 4: Iterative verification
+
+### Pipeline scenarios
 
 Run and iterate until either success or a blocking finding.
 
@@ -152,9 +192,16 @@ Or read the Parquet files directly with DuckDB if simpler.
 
 **Mark success criteria checkboxes** if the full run succeeds.
 
+### Feature scenarios
+
+After completing all phases, mark the success criteria checkboxes based on the phase outcomes. For each criterion:
+- Check it if the relevant phase step produced the expected output
+- Leave it unchecked with a note if the phase failed or was not reached
+- Note any partial passes (e.g. "command ran but output format differs from expected")
+
 ---
 
-## Step 5: Document Findings
+## Step 5: Document findings
 
 ### Create the run directory and report
 
@@ -169,9 +216,8 @@ Date: YYYY-MM-DD | Tester: Claude <model> | Scenario: <scenario-name>
 ## Outcome: SUCCESS | PARTIAL SUCCESS | FAILURE
 
 ## Success Criteria
-- [x] Pipeline YAML validates successfully
-- [x] --limit 1 run fetches at least 1 real row
-- [ ] Full run deduplicates correctly on primary key
+- [x] <criterion from scenario file>
+- [ ] <criterion that failed>
 ... (copy from scenario file, check off what passed)
 
 ## What Worked
@@ -186,17 +232,20 @@ Date: YYYY-MM-DD | Tester: Claude <model> | Scenario: <scenario-name>
 - <description>
   [→ Finding F-XXX: Minor / UX]
 
-## Pipeline Produced
+## Artifacts Produced
+<!-- For pipeline scenarios: -->
 See pipeline.yml in this directory. (copy the final YAML here if it worked)
+<!-- For feature scenarios: -->
+<List GCP resources created, files modified, state written, etc.>
 
 ## Proposed Fixes
 1. F-XXX: <concise fix proposal>
 ...
 ```
 
-**`pipeline.yml`** — copy from `$CLONE/pipelines/<name>.yml` (even if it only partially worked)
+**For pipeline scenarios:** copy `$CLONE/pipelines/<name>.yml` as `pipeline.yml` and `$CLONE/connectors/<name>.py` as `connector.py` if one was written.
 
-**`connector.py`** — copy from `$CLONE/connectors/<name>.py` if one was written
+**For feature scenarios:** note any GCP resources created (environment names, job IDs) so the user can clean them up if needed.
 
 ### Update the central tracker
 
@@ -234,15 +283,15 @@ Wait for the user to review and tell you which findings to fix, mark by-design, 
 
 ## Rules for Finding Classification
 
-**Never classify a finding as Minor if it prevents a real-world pipeline from working.** When in doubt, classify higher (more severe).
+**Never classify a finding as Minor if it prevents the scenario's core goal from being achieved.** When in doubt, classify higher (more severe).
 
-**A finding is Blocking if:** any real API of this type cannot be ingested without a ddt code change.
+**A finding is Blocking if:** the scenario cannot progress without a ddt code change or missing implementation.
 
-**A finding is a Skill finding if:** the `new-pipeline` skill gave you wrong or missing guidance that caused you to go down the wrong path.
+**A finding is a Skill finding if:** a ddt skill (`new-pipeline`, `new-feature`, `tech-design`, `implement-design`) gave wrong or missing guidance that caused the wrong path to be taken.
 
-**A finding is a UX finding if:** an error message was cryptic, a CLI flag was confusing, or you had to read source code to understand what was happening.
+**A finding is a UX finding if:** an error message was cryptic, a CLI flag was confusing, or reading source code was required to understand what was happening.
 
-**Do not report findings for things that are intentionally out of scope** (e.g., ddt does not claim to support OAuth PKCE flows). Check the README and existing "By Design" entries before filing.
+**Do not report findings for things that are intentionally out of scope.** Check the README, the feature file's "Out of Scope" section, and existing "By Design" entries in FINDINGS.md before filing.
 
 ---
 
@@ -252,7 +301,7 @@ When the user tells you to fix a finding:
 
 1. Implement the fix in the relevant ddt source file
 2. Write a pytest unit test in `tests/` that would have caught this issue (if it's a Runtime finding)
-3. Re-run the scenario's `--limit 1` test to verify the fix
+3. Re-run the relevant scenario phase to verify the fix
 4. Update `testing/FINDINGS.md`: move the finding to the Fixed table with the git commit hash
 5. Update `testing/runs/<run>/report.md` to note the fix
 

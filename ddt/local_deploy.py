@@ -1,35 +1,43 @@
 """Local Docker-based deployment for batch and streaming pipelines.
 
-No GCP account required. Batch pipelines run as a one-shot Docker container;
-streaming pipelines run a Kafka broker + a local stream runner container.
+No GCP account required. Batch pipelines are built and scheduled via local
+Terraform modules (batch_pipeline_local + airflow_local). Streaming pipelines
+run a Kafka broker + local stream runner container.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
+import logging
 import os
 import re
+import secrets
 import shutil
 import subprocess
-import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from textwrap import dedent
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 _DDT_PKG_DIR = Path(__file__).parent
 _DDT_REPO_ROOT = _DDT_PKG_DIR.parent
 
+_LOCAL_PIPELINE_MODULE = _DDT_PKG_DIR / "infra" / "modules" / "batch_pipeline_local"
+_LOCAL_AIRFLOW_MODULE = _DDT_PKG_DIR / "infra" / "modules" / "airflow_local"
+
+_BUILD_DIR = Path.home() / ".ddt" / "build"
+_TF_DIR = Path.home() / ".ddt" / "terraform"
+_TF_PLUGIN_CACHE = _TF_DIR / ".plugin-cache"
+_AIRFLOW_DAGS_DIR = Path.home() / ".ddt" / "airflow" / "dags"
+_AIRFLOW_COMPOSE_FILE = Path.home() / ".ddt" / "airflow" / "docker-compose.yml"
+
 
 def _collect_env_vars(project_root: Path, pipeline_name: str) -> list[str]:
-    """Scan pipeline YAML for {{ env.VAR }} references and return ['-e', 'VAR=value', ...].
-
-    Resolution order for each VAR:
-      1. Host OS environment variable
-      2. project.yml key (lowercased, e.g. GH_PAT → gh_pat)
-    Raises EnvironmentError if a referenced var cannot be resolved.
-    """
+    """Scan pipeline YAML for {{ env.VAR }} references and return ['-e', 'VAR=value', ...]."""
     pipeline_path = project_root / "pipelines" / f"{pipeline_name}.yml"
     if not pipeline_path.exists():
         return []
@@ -45,7 +53,7 @@ def _collect_env_vars(project_root: Path, pipeline_name: str) -> list[str]:
         project_cfg = yaml.safe_load(cfg_path.read_text()) or {}
 
     args: list[str] = []
-    for var in dict.fromkeys(var_names):  # deduplicate, preserve order
+    for var in dict.fromkeys(var_names):
         value = os.environ.get(var) or project_cfg.get(var.lower())
         if not value:
             raise EnvironmentError(
@@ -66,17 +74,14 @@ def deploy(
     project_root: Path,
     subscription: str | None = None,
 ) -> dict:
-    """Build and start local Docker containers for a pipeline.
-
-    Returns the deployment state dict to write into project.yml.
-    """
+    """Build and start local Docker containers for a pipeline."""
     _check_docker()
     if deployment.type == "streaming":
         if subscription is None:
             raise ValueError("subscription is required for streaming local deploy")
         return _deploy_streaming(pipeline_name, subscription, deployment.window_seconds, project_root)
     else:
-        return _deploy_batch(pipeline_name, project_root)
+        return _deploy_batch(pipeline_name, deployment, project_root)
 
 
 def undeploy(pipeline_name: str, deployment_state: dict) -> None:
@@ -105,91 +110,281 @@ def publish(pipeline_name: str, deployment_state: dict, message_json: str, count
 
 
 # ------------------------------------------------------------------ #
-# Batch                                                                #
+# Batch — Terraform path                                               #
 # ------------------------------------------------------------------ #
 
-def _deploy_batch(pipeline_name: str, project_root: Path) -> dict:
+def _deploy_batch(pipeline_name: str, deployment, project_root: Path) -> dict:
     image_tag = f"ddt-local/{pipeline_name}:latest"
     warehouse_path = project_root / "warehouse"
     warehouse_path.mkdir(exist_ok=True)
 
-    print(f"  Building local image '{image_tag}'...", flush=True)
-    print("  (First build downloads python:3.12-slim, ~1 minute)", flush=True)
-    _build_batch_image(project_root, image_tag)
+    print(f"  Syncing build context for '{pipeline_name}'...", flush=True)
+    build_context = _sync_build_context(project_root, pipeline_name)
 
-    env_args = _collect_env_vars(project_root, pipeline_name)
-    if env_args:
-        var_names = [env_args[i] for i in range(1, len(env_args), 2)]
-        names_str = ", ".join(v.split("=")[0] for v in var_names)
-        print(f"  Forwarding env vars: {names_str}", flush=True)
+    content_hash = _content_hash(build_context)
 
-    print(f"  Running '{pipeline_name}' in container to verify...", flush=True)
-    result = subprocess.run(
-        [
-            "docker", "run", "--rm",
-            "--name", f"ddt-verify-{pipeline_name}",
-            "-e", f"PIPELINE_NAME={pipeline_name}",
-            *env_args,
-            "-v", f"{warehouse_path}:/app/warehouse",
-            image_tag,
-        ],
+    print(f"  Applying Terraform (pipeline image)...", flush=True)
+    _tf_apply_local_pipeline(pipeline_name, build_context, image_tag, content_hash)
+
+    print(f"  Writing DAG file...", flush=True)
+    _AIRFLOW_DAGS_DIR.mkdir(parents=True, exist_ok=True)
+    dag_content = _local_dag_content(
+        pipeline_name=pipeline_name,
+        schedule=deployment.schedule,
+        paused=getattr(deployment, "paused", False),
+        image_tag=image_tag,
+        warehouse_path=str(warehouse_path),
     )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"Verification run for '{pipeline_name}' failed (exit {result.returncode}).\n"
-            "Check the output above for details."
-        )
+    _write_local_dag(pipeline_name, dag_content)
+
+    print(f"  Applying Terraform (Airflow stack)...", flush=True)
+    credentials = _generate_airflow_credentials(project_root)
+    airflow_outputs = _tf_apply_airflow_local(
+        dag_dir=str(_AIRFLOW_DAGS_DIR),
+        warehouse_path=str(warehouse_path),
+        credentials=credentials,
+    )
+
+    airflow_url = airflow_outputs.get("webserver_url", {}).get("value", "http://localhost:8080")
+    print(f"  Airflow UI: {airflow_url}", flush=True)
 
     return {
         "type": "batch",
         "image_tag": image_tag,
         "warehouse_path": str(warehouse_path),
+        "airflow_url": airflow_url,
+        "schedule": deployment.schedule,
         "deployed_at": datetime.now(tz=timezone.utc).isoformat(timespec="seconds"),
     }
 
 
-def _build_batch_image(project_root: Path, image_tag: str) -> None:
-    with tempfile.TemporaryDirectory(prefix="ddt-local-batch-") as tmp:
-        tmp_path = Path(tmp)
-        shutil.copytree(_DDT_PKG_DIR, tmp_path / "ddt")
-        shutil.copy2(_DDT_REPO_ROOT / "pyproject.toml", tmp_path / "pyproject.toml")
-
-        for subdir in ("pipelines", "connectors"):
-            src = project_root / subdir
-            if src.exists():
-                shutil.copytree(src, tmp_path / subdir)
-            else:
-                (tmp_path / subdir).mkdir()
-
-        (tmp_path / "project.yml").write_text("catalog: local\n")
-
-        (tmp_path / "Dockerfile").write_text(dedent("""\
-            FROM python:3.12-slim
-            RUN apt-get update && apt-get install -y --no-install-recommends \
-                openjdk-21-jre-headless && rm -rf /var/lib/apt/lists/*
-            WORKDIR /app
-            COPY pyproject.toml .
-            COPY ddt/ ./ddt/
-            RUN pip install --no-cache-dir -e .
-            COPY pipelines/ ./pipelines/
-            COPY connectors/ ./connectors/
-            COPY project.yml .
-            ENV PIPELINE_NAME=""
-            CMD ["sh", "-c", "ddt run $PIPELINE_NAME"]
-        """))
-
-        result = subprocess.run(
-            ["docker", "build", "-t", image_tag, "."],
-            cwd=tmp,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"docker build failed for '{image_tag}'")
-
-
 def _undeploy_batch(pipeline_name: str, state: dict) -> None:
-    image_tag = state.get("image_tag", f"ddt-local/{pipeline_name}:latest")
-    print(f"  Removing local image '{image_tag}'...", flush=True)
-    subprocess.run(["docker", "rmi", "-f", image_tag], capture_output=True)
+    print(f"  Destroying pipeline Terraform resources...", flush=True)
+    _tf_destroy_local_pipeline(pipeline_name)
+
+    dag_file = _AIRFLOW_DAGS_DIR / f"{pipeline_name}.py"
+    if dag_file.exists():
+        dag_file.unlink()
+        print(f"  Removed DAG file: {dag_file}", flush=True)
+
+
+# ------------------------------------------------------------------ #
+# Build context helpers                                                #
+# ------------------------------------------------------------------ #
+
+def _sync_build_context(project_root: Path, pipeline_name: str) -> Path:
+    """Create a stable build context dir at ~/.ddt/build/local/<name>/."""
+    build_context = _BUILD_DIR / "local" / pipeline_name
+    shutil.rmtree(build_context, ignore_errors=True)
+    build_context.mkdir(parents=True)
+
+    shutil.copytree(_DDT_PKG_DIR, build_context / "ddt")
+    shutil.copy2(_DDT_REPO_ROOT / "pyproject.toml", build_context / "pyproject.toml")
+
+    for subdir in ("pipelines", "connectors"):
+        src = project_root / subdir
+        dst = build_context / subdir
+        if src.exists():
+            shutil.copytree(src, dst)
+        else:
+            dst.mkdir()
+
+    (build_context / "project.yml").write_text("catalog: local\n")
+
+    return build_context
+
+
+def _content_hash(build_context: Path) -> str:
+    """SHA256 of all files in build_context, excluding Dockerfile (written by Terraform)."""
+    h = hashlib.sha256()
+    for path in sorted(build_context.rglob("*")):
+        if path.is_file() and path.name != "Dockerfile":
+            h.update(path.read_bytes())
+    return h.hexdigest()
+
+
+# ------------------------------------------------------------------ #
+# Terraform helpers — pipeline                                         #
+# ------------------------------------------------------------------ #
+
+def _tf_env() -> dict:
+    return {
+        **os.environ,
+        "TF_INPUT": "0",
+        "TF_PLUGIN_CACHE_DIR": str(_TF_PLUGIN_CACHE),
+    }
+
+
+def _tf_run(cmd: list[str], work_dir: Path, env: dict) -> None:
+    result = subprocess.run(cmd, cwd=str(work_dir), env=env, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"terraform {cmd[1]} failed (exit {result.returncode}):\n{result.stderr[-2000:]}"
+        )
+    logger.info("terraform %s OK", cmd[1])
+
+
+def _tf_apply_local_pipeline(
+    pipeline_name: str,
+    build_context: Path,
+    image_tag: str,
+    content_hash: str,
+) -> None:
+    work_dir = _TF_DIR / "pipelines" / pipeline_name / "local"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    _TF_PLUGIN_CACHE.mkdir(parents=True, exist_ok=True)
+
+    for tf_file in _LOCAL_PIPELINE_MODULE.glob("*.tf"):
+        shutil.copy2(tf_file, work_dir / tf_file.name)
+
+    tfvars = {
+        "pipeline_name": pipeline_name,
+        "build_context": str(build_context),
+        "image_tag": image_tag,
+        "content_hash": content_hash,
+        "java_enabled": True,
+    }
+    (work_dir / "terraform.tfvars.json").write_text(json.dumps(tfvars, indent=2))
+
+    env = _tf_env()
+    _tf_run(["terraform", "init", "-reconfigure"], work_dir, env)
+    _tf_run(["terraform", "apply", "-auto-approve"], work_dir, env)
+
+
+def _tf_destroy_local_pipeline(pipeline_name: str) -> None:
+    work_dir = _TF_DIR / "pipelines" / pipeline_name / "local"
+    if not work_dir.exists():
+        logger.warning("No Terraform state found at %s — skipping destroy", work_dir)
+        return
+
+    env = _tf_env()
+    _tf_run(["terraform", "destroy", "-auto-approve"], work_dir, env)
+    shutil.rmtree(work_dir)
+
+
+# ------------------------------------------------------------------ #
+# DAG content                                                          #
+# ------------------------------------------------------------------ #
+
+def _local_dag_content(
+    pipeline_name: str,
+    schedule: str,
+    paused: bool,
+    image_tag: str,
+    warehouse_path: str,
+) -> str:
+    paused_str = "True" if paused else "False"
+    return f"""\
+# Generated by ddt — do not edit manually
+from datetime import datetime
+from airflow import DAG
+from airflow.providers.docker.operators.docker import DockerOperator
+
+with DAG(
+    dag_id="{pipeline_name}",
+    schedule_interval="{schedule}",
+    start_date=datetime(2024, 1, 1),
+    catchup=False,
+    is_paused_upon_creation={paused_str},
+    tags=["ddt"],
+) as dag:
+    run_pipeline = DockerOperator(
+        task_id="run_{pipeline_name}",
+        image="{image_tag}",
+        environment={{"PIPELINE_NAME": "{pipeline_name}"}},
+        volumes=["{warehouse_path}:/app/warehouse"],
+        docker_url="unix:///var/run/docker.sock",
+        auto_remove="success",
+    )
+"""
+
+
+def _write_local_dag(pipeline_name: str, dag_content: str) -> None:
+    _AIRFLOW_DAGS_DIR.mkdir(parents=True, exist_ok=True)
+    (_AIRFLOW_DAGS_DIR / f"{pipeline_name}.py").write_text(dag_content)
+
+
+# ------------------------------------------------------------------ #
+# Terraform helpers — Airflow                                          #
+# ------------------------------------------------------------------ #
+
+def _airflow_build_context() -> Path:
+    """Return the stable build context dir for the local Airflow image."""
+    build_context = _BUILD_DIR / "airflow-local"
+    build_context.mkdir(parents=True, exist_ok=True)
+    return build_context
+
+
+def _airflow_content_hash() -> str:
+    """Hash of the airflow Dockerfile template to detect when Airflow image needs rebuild."""
+    template = _DDT_PKG_DIR / "infra" / "modules" / "templates" / "airflow.Dockerfile.tftpl"
+    return hashlib.sha256(template.read_bytes()).hexdigest()
+
+
+def _generate_airflow_credentials(project_root: Path) -> dict:
+    """Read/generate Airflow credentials from project.yml."""
+    cfg_path = project_root / "project.yml"
+    cfg: dict = yaml.safe_load(cfg_path.read_text()) or {} if cfg_path.exists() else {}
+
+    admin_password = cfg.get("airflow_admin_password")
+    if not admin_password:
+        raise RuntimeError(
+            "airflow_admin_password is missing from project.yml.\n"
+            "Add it before running ddt deploy:\n\n"
+            "  airflow_admin_password: \"your-password-here\"\n"
+        )
+
+    fernet_key = cfg.get("airflow_fernet_key")
+    if not fernet_key:
+        from cryptography.fernet import Fernet
+        fernet_key = Fernet.generate_key().decode()
+        cfg["airflow_fernet_key"] = fernet_key
+        cfg_path.write_text(yaml.dump(cfg, default_flow_style=False, sort_keys=False))
+        logger.info("Generated and saved airflow_fernet_key to project.yml")
+
+    return {
+        "db_password": "airflow",
+        "admin_password": admin_password,
+        "fernet_key": fernet_key,
+    }
+
+
+def _tf_apply_airflow_local(dag_dir: str, warehouse_path: str, credentials: dict) -> dict:
+    work_dir = _TF_DIR / "airflow" / "local"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    _TF_PLUGIN_CACHE.mkdir(parents=True, exist_ok=True)
+
+    for tf_file in _LOCAL_AIRFLOW_MODULE.glob("*.tf"):
+        shutil.copy2(tf_file, work_dir / tf_file.name)
+
+    build_context = _airflow_build_context()
+    content_hash = _airflow_content_hash()
+
+    tfvars = {
+        "image_tag": "ddt-airflow-local:latest",
+        "build_context": str(build_context),
+        "content_hash": content_hash,
+        "dag_dir": dag_dir,
+        "warehouse_path": warehouse_path,
+        "docker_socket": "/var/run/docker.sock",
+        "db_password": credentials["db_password"],
+        "admin_password": credentials["admin_password"],
+        "fernet_key": credentials["fernet_key"],
+        "compose_file_path": str(_AIRFLOW_COMPOSE_FILE),
+    }
+    (work_dir / "terraform.tfvars.json").write_text(json.dumps(tfvars, indent=2))
+
+    _AIRFLOW_COMPOSE_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+    env = _tf_env()
+    _tf_run(["terraform", "init", "-reconfigure"], work_dir, env)
+    _tf_run(["terraform", "apply", "-auto-approve"], work_dir, env)
+
+    raw = subprocess.run(
+        ["terraform", "output", "-json"],
+        cwd=str(work_dir), env=env, capture_output=True, text=True,
+    ).stdout
+    return json.loads(raw) if raw.strip() else {}
 
 
 # ------------------------------------------------------------------ #
@@ -222,7 +417,6 @@ def _deploy_streaming(
     warehouse_path = project_root / "warehouse"
     warehouse_path.mkdir(exist_ok=True)
 
-    # Idempotency: tear down any existing containers and network
     _stop_remove(runner_cname)
     _stop_remove(kafka_cname)
     _remove_network(network)
@@ -250,7 +444,6 @@ def _deploy_streaming(
         project_root=project_root,
     )
 
-    # Brief pause then confirm the runner is still up
     time.sleep(4)
     status = subprocess.run(
         ["docker", "inspect", "--format", "{{.State.Status}}", runner_cname],
@@ -353,6 +546,9 @@ def _create_kafka_topic(bootstrap: str, topic_name: str) -> None:
 
 
 def _build_stream_image(project_root: Path, image_tag: str) -> None:
+    import tempfile
+    from textwrap import dedent
+
     with tempfile.TemporaryDirectory(prefix="ddt-local-stream-") as tmp:
         tmp_path = Path(tmp)
         shutil.copytree(_DDT_PKG_DIR, tmp_path / "ddt")
@@ -379,10 +575,7 @@ def _build_stream_image(project_root: Path, image_tag: str) -> None:
             ENTRYPOINT ["python", "-m", "ddt.local_stream_runner"]
         """))
 
-        result = subprocess.run(
-            ["docker", "build", "-t", image_tag, "."],
-            cwd=tmp,
-        )
+        result = subprocess.run(["docker", "build", "-t", image_tag, "."], cwd=tmp)
         if result.returncode != 0:
             raise RuntimeError(f"docker build failed for '{image_tag}'")
 
@@ -446,15 +639,12 @@ def _undeploy_streaming(pipeline_name: str, state: dict) -> None:
 def _check_docker() -> None:
     result = subprocess.run(["docker", "info"], capture_output=True)
     if result.returncode != 0:
-        raise RuntimeError(
-            "Docker is not running. Start Docker Desktop and retry."
-        )
+        raise RuntimeError("Docker is not running. Start Docker Desktop and retry.")
 
 
 def _stop_remove(container_name: str) -> None:
     exists = subprocess.run(
-        ["docker", "inspect", container_name],
-        capture_output=True,
+        ["docker", "inspect", container_name], capture_output=True,
     ).returncode == 0
     if exists:
         subprocess.run(["docker", "stop", container_name], capture_output=True)
@@ -463,8 +653,7 @@ def _stop_remove(container_name: str) -> None:
 
 def _remove_network(network: str) -> None:
     exists = subprocess.run(
-        ["docker", "network", "inspect", network],
-        capture_output=True,
+        ["docker", "network", "inspect", network], capture_output=True,
     ).returncode == 0
     if exists:
         subprocess.run(["docker", "network", "rm", network], capture_output=True)

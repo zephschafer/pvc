@@ -359,9 +359,54 @@ def _require_gcp_config() -> tuple[dict, dict]:
 
 @app.command()
 def deploy(
-    pipeline_name: str = typer.Argument(..., help="Pipeline name (without .yml)"),
+    pipeline_name: str | None = typer.Argument(None, help="Pipeline name (without .yml), or omit to deploy all"),
 ):
-    """Deploy a pipeline locally (Docker) or to GCP based on catalog in project.yml."""
+    """Deploy a pipeline locally (Docker + Airflow) or to GCP based on catalog in project.yml."""
+    from .config import load_pipeline
+
+    if pipeline_name is None:
+        _deploy_all()
+        return
+
+    _deploy_one(pipeline_name)
+
+
+def _deploy_all() -> None:
+    """Deploy every pipeline YAML that has a deploy: block."""
+    pipelines_dir = _pipelines_dir()
+    from .config import load_pipeline
+
+    candidates = []
+    for path in sorted(pipelines_dir.glob("*.yml")):
+        try:
+            pipeline = load_pipeline(path, resolve_env=False)
+            if pipeline.deploy is not None:
+                candidates.append(path.stem)
+        except Exception:
+            pass
+
+    if not candidates:
+        typer.echo("No pipelines with a 'deploy:' block found in pipelines/.")
+        raise typer.Exit(0)
+
+    typer.echo(f"Deploying {len(candidates)} pipeline(s): {', '.join(candidates)}")
+    failures = []
+    for name in candidates:
+        typer.echo(f"\n--- {name} ---")
+        try:
+            _deploy_one(name)
+        except SystemExit:
+            failures.append(name)
+        except Exception as e:
+            typer.echo(f"Deploy failed for '{name}': {e}", err=True)
+            failures.append(name)
+
+    if failures:
+        typer.echo(f"\nFailed: {', '.join(failures)}", err=True)
+        raise typer.Exit(1)
+
+
+def _deploy_one(pipeline_name: str) -> None:
     from .config import load_pipeline
     from .config.models import PubSubSource
 
@@ -406,7 +451,7 @@ def deploy(
                 subscription = pipeline.source.subscription
                 typer.echo(f"Deploying '{pipeline_name}' (local streaming, Kafka)...")
             else:
-                typer.echo(f"Deploying '{pipeline_name}' (local batch, Docker)...")
+                typer.echo(f"Deploying '{pipeline_name}' (local batch, Terraform + Airflow)...")
 
             cfg = _load_config()
             state = local_deploy.deploy(
@@ -427,15 +472,10 @@ def deploy(
                 typer.echo(f"  Window:       {state['window_seconds']}s")
                 typer.echo(f"  To publish:   ddt publish {pipeline_name} '{{\"field\": \"value\"}}'")
             else:
-                typer.echo(f"  Type:         batch (local Docker)")
+                typer.echo(f"  Type:         batch (local Terraform)")
                 typer.echo(f"  Image:        {state['image_tag']}")
                 typer.echo(f"  Warehouse:    {state['warehouse_path']}")
-                typer.echo(
-                    f"  To run again: docker run --rm "
-                    f"-e PIPELINE_NAME={pipeline_name} "
-                    f"-v {state['warehouse_path']}:/app/warehouse "
-                    f"{state['image_tag']}"
-                )
+                typer.echo(f"  Airflow UI:   {state.get('airflow_url', 'http://localhost:8080')}")
             return
 
         cfg, gcp = _require_gcp_config()
@@ -481,8 +521,9 @@ def deploy(
     else:
         typer.echo(f"  DAG:          {state['dag_id']}")
         typer.echo(f"  Cloud Run:    {state['cloud_run_job']}")
-        typer.echo(f"  Composer env: {state['composer_env']}")
         typer.echo(f"  Schedule:     {state['schedule']}")
+        if state.get("airflow_url"):
+            typer.echo(f"  Airflow UI:   {state['airflow_url']}")
 
 
 @app.command()
@@ -531,8 +572,7 @@ def undeploy(
             )
         else:
             typer.confirm(
-                f"Remove Cloud Run job '{deployment.get('cloud_run_job', pipeline_name)}' and "
-                f"Composer DAG '{deployment.get('dag_id', pipeline_name)}'? "
+                f"Remove pipeline '{pipeline_name}' deployment and stop its scheduling? "
                 "(warehouse data will NOT be deleted)",
                 abort=True,
             )
@@ -609,7 +649,8 @@ def deploy_status(
             typer.echo(f"  Schedule:     {state.get('schedule', '-')}")
             typer.echo(f"  DAG:          {state.get('dag_id', '-')}")
             typer.echo(f"  Cloud Run:    {state.get('cloud_run_job', '-')}")
-            typer.echo(f"  Composer env: {state.get('composer_env', '-')}")
+            if state.get("airflow_url"):
+                typer.echo(f"  Airflow UI:   {state.get('airflow_url', '-')}")
         typer.echo(f"  Deployed at:  {state.get('deployed_at', '-')}")
 
 

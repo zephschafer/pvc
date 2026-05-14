@@ -1,6 +1,6 @@
 # ddt Core Limitations Tracker
 
-Last updated: 2026-05-12 | Total findings: 49 | Open: 4 | Fixed: 45
+Last updated: 2026-05-14 | Total findings: 51 | Open: 6 | Fixed: 45
 
 ## Severity Definitions
 
@@ -32,6 +32,8 @@ Last updated: 2026-05-12 | Total findings: 49 | Open: 4 | Fixed: 45
 | F-047 | Minor | UX | `features/batch-deployment.md` line 55 and scenario criterion "ddt deploy without catalog: gcp exits with clear error" are stale — behavior changed in commit `08faf16` when `catalog: local` was routed to local Docker deployment instead of erroring | batch-deployment |
 | F-048 | Minor | UX | Local Docker deployment (`local_deploy.py`, commit `08faf16`) has no feature file in `features/`; `FEATURES.md` registry is incomplete and requirements/acceptance criteria are undocumented | batch-deployment |
 | F-049 | Minor | UX | `sa_email` is required by `_require_gcp_config()` for `ddt deploy` (GCP path) but is not listed in the batch-deployment scenario notes as a required project.yml field; tester must manually discover and populate it | batch-deployment |
+| F-050 | Major | Runtime | `ddt/infra/modules/gcp/batch_pipeline/main.tf` names the Cloud Run job `"pvc-job-${var.pipeline_name}"` — the stale `pvc-` prefix from before the project rename. The design requires `"ddt-job-${var.pipeline_name}"`. Until fixed, `ddt deploy` (GCP) creates jobs with the wrong name and success criteria in `batch-deployment-gcp` Phase 1 will fail. | batch-deployment-gcp |
+| F-051 | Minor | Runtime | `tests/test_deploy_cli.py` line 51 (`test_deploy_requires_gcp_catalog`) asserts that `catalog: local` causes `ddt deploy` to exit with error — behavior that changed in commit `08faf16` when local deploy was added. With the new Terraform-based local deploy, `catalog: local` is valid. The test must be updated to mock `local_deploy.deploy` and assert it is called, not assert exit code 1. | batch-deployment-local |
 
 ---
 

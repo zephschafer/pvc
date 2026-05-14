@@ -1,0 +1,8 @@
+FROM apache/airflow:2.9-python3.12
+USER root
+%{ if target == "local" ~}
+RUN pip install --no-cache-dir apache-airflow-providers-docker
+%{ else ~}
+RUN pip install --no-cache-dir apache-airflow-providers-google
+%{ endif ~}
+USER airflow

@@ -1,4 +1,4 @@
-You are helping the user create a new ddt test scenario. A scenario is a structured markdown file in `testing/scenarios/` that drives a `test-pipeline` run. Your job is to produce a precise, actionable scenario that a future test agent can execute without ambiguity.
+You are helping the user create a new ddt test scenario. A scenario is a structured markdown file in `testing/scenarios/` that drives a `test-feature` run. Your job is to produce a precise, actionable scenario that a future test agent can execute without ambiguity.
 
 ## Arguments
 
@@ -107,7 +107,7 @@ Phase 1 success: [one sentence]
 
 ## Notes for Agent
 
-- [Concrete instruction for the test-pipeline agent — file paths, command prefixes, things to watch for]
+- [Concrete instruction for the test-feature agent — file paths, command prefixes, things to watch for]
 - [Anything that would save the agent time or prevent a wrong turn]
 ```
 
@@ -151,6 +151,6 @@ Tell the user:
 - The scenario file path (`testing/scenarios/<slug>.md`)
 - Whether the feature file was updated with a cross-link
 - Whether any new credentials need to be added to `test_config.yml.example`
-- What the first command would be to run this scenario: `/test-pipeline <slug>`
+- What the first command would be to run this scenario: `/test-feature <slug>`
 
 Ask if there is anything to revise.

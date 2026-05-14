@@ -48,13 +48,58 @@ def test_deploy_no_deploy_block(tmp_path, monkeypatch):
     assert "no 'deploy:' block" in result.output
 
 
-def test_deploy_requires_gcp_catalog(tmp_path, monkeypatch):
+def test_deploy_local_catalog_routes_to_local_deploy(tmp_path, monkeypatch):
     project = _make_project(tmp_path, catalog="local")
     _make_pipeline(project, "my_pipeline", with_deploy=True)
     monkeypatch.setenv("DDT_PROJECT_DIR", str(tmp_path))
+
+    called = {}
+
+    def mock_deploy(pipeline_name, deployment, project_root, subscription=None):
+        called["pipeline_name"] = pipeline_name
+        return {
+            "type": "batch",
+            "image_tag": f"ddt-local/{pipeline_name}:latest",
+            "warehouse_path": str(project_root / "warehouse"),
+            "airflow_url": "http://localhost:8080",
+            "schedule": "0 8 * * *",
+            "deployed_at": "2026-05-14T00:00:00+00:00",
+        }
+
+    monkeypatch.setattr("ddt.local_deploy.deploy", mock_deploy)
+    monkeypatch.setattr("ddt.local_deploy._check_docker", lambda: None)
     result = runner.invoke(app, ["deploy", "my_pipeline"])
-    assert result.exit_code == 1
-    assert "catalog is not 'gcp'" in result.output
+    assert result.exit_code == 0, result.output
+    assert called.get("pipeline_name") == "my_pipeline"
+
+
+def test_deploy_no_args_deploys_all(tmp_path, monkeypatch):
+    project = _make_project(tmp_path, catalog="local")
+    _make_pipeline(project, "pipeline_a", with_deploy=True)
+    _make_pipeline(project, "pipeline_b", with_deploy=True)
+    _make_pipeline(project, "no_deploy", with_deploy=False)
+    monkeypatch.setenv("DDT_PROJECT_DIR", str(tmp_path))
+
+    deployed = []
+
+    def mock_deploy(pipeline_name, deployment, project_root, subscription=None):
+        deployed.append(pipeline_name)
+        return {
+            "type": "batch",
+            "image_tag": f"ddt-local/{pipeline_name}:latest",
+            "warehouse_path": str(project_root / "warehouse"),
+            "airflow_url": "http://localhost:8080",
+            "schedule": "0 8 * * *",
+            "deployed_at": "2026-05-14T00:00:00+00:00",
+        }
+
+    monkeypatch.setattr("ddt.local_deploy.deploy", mock_deploy)
+    monkeypatch.setattr("ddt.local_deploy._check_docker", lambda: None)
+    result = runner.invoke(app, ["deploy"])
+    assert result.exit_code == 0, result.output
+    assert "pipeline_a" in deployed
+    assert "pipeline_b" in deployed
+    assert "no_deploy" not in deployed
 
 
 def test_deploy_requires_gcp_setup_complete(tmp_path, monkeypatch):
@@ -91,7 +136,7 @@ def test_deploy_status_shows_deployments(tmp_path, monkeypatch):
             "schedule": "0 8 * * *",
             "dag_id": "my_pipeline",
             "cloud_run_job": "ddt-job-my-pipeline",
-            "composer_env": "ddt-composer",
+            "airflow_url": "https://ddt-airflow-abc123-uc.a.run.app",
             "deployed_at": "2026-05-11T08:00:00+00:00",
         }
     }

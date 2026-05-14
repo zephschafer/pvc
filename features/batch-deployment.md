@@ -67,9 +67,12 @@ As a developer who has built and validated a ddt pipeline, I want to deploy it a
 
 ## Related Scenarios
 
-- [`testing/scenarios/batch-deployment.md`](../testing/scenarios/batch-deployment.md) — full lifecycle: validate deploy: block → ddt deploy → Composer DAG execution → GCS write → idempotency → ddt undeploy
+- [`testing/scenarios/batch-deployment-local.md`](../testing/scenarios/batch-deployment-local.md) — local Terraform module validation, `ddt deploy` local, DAG file writing, local Airflow Docker Compose stack lifecycle
+- [`testing/scenarios/batch-deployment-gcp.md`](../testing/scenarios/batch-deployment-gcp.md) — GCP pipeline container via Terraform, Cloud Run job, GCS DAG write, GCP Airflow (Cloud Run + Cloud SQL) lifecycle
 
 ## Design Notes
+
+Design document: [`design/batch-deployment.md`](../design/batch-deployment.md)
 
 ### Infrastructure default: Composer + Cloud Run
 

@@ -5,6 +5,14 @@ terraform {
       source  = "hashicorp/google"
       version = "~> 5.0"
     }
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.0"
+    }
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.0"
+    }
   }
 }
 
@@ -13,8 +21,29 @@ provider "google" {
   region  = var.region
 }
 
+resource "local_file" "dockerfile" {
+  content  = templatefile("${path.module}/../../templates/batch_pipeline.Dockerfile.tftpl", {
+    java_enabled = var.java_enabled
+  })
+  filename = "${var.build_context}/Dockerfile"
+}
+
+resource "null_resource" "build" {
+  depends_on = [local_file.dockerfile]
+
+  triggers = {
+    content_hash = var.content_hash
+  }
+
+  provisioner "local-exec" {
+    command = "gcloud builds submit --project ${var.project_id} --region ${var.region} --tag ${var.image_uri} --timeout 600s ${var.build_context}"
+  }
+}
+
 resource "google_cloud_run_v2_job" "pipeline" {
-  name     = "pvc-job-${replace(var.pipeline_name, "_", "-")}"
+  depends_on = [null_resource.build]
+
+  name     = "ddt-job-${replace(var.pipeline_name, "_", "-")}"
   location = var.region
 
   template {
@@ -38,10 +67,4 @@ resource "google_cloud_run_v2_job" "pipeline" {
       }
     }
   }
-}
-
-resource "google_storage_bucket_object" "dag" {
-  bucket  = var.dag_bucket
-  name    = var.dag_blob_name
-  content = var.dag_content
 }
