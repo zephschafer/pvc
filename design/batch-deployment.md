@@ -3,7 +3,7 @@
 **Status:** Finalized
 **ID:** batch-deployment
 **Created:** 2026-05-14
-**Updated:** 2026-05-14
+**Updated:** 2026-05-14 (module structure revised)
 **Feature:** [batch-deployment](../features/batch-deployment.md)
 **Implementation Plan:** [`design/batch-deployment-plan.md`](./batch-deployment-plan.md)
 
@@ -35,14 +35,14 @@ ddt deploy [<name>]           reads catalog=local from project.yml
     │     │
     │     ├── Python: assemble pipeline build context → /tmp/ddt-pipeline-<name>/
     │     │
-    │     ├── terraform apply  [batch_pipeline_local/]
+    │     ├── terraform apply  [batch_pipeline/ {location=local}]
     │     │     ├── local_file.dockerfile → Dockerfile (batch_pipeline.Dockerfile.tftpl)
     │     │     └── null_resource.build  → docker build -t ddt-local/<name>:latest
     │     │
     │     └── Python: write DAG file → ~/.ddt/airflow/dags/<name>.py
     │                                   (DockerOperator — runs ddt-local/<name>:latest)
     │
-    └── terraform apply  [airflow_local/]    ← only on first deploy; idempotent thereafter
+    └── terraform apply  [airflow/ {location=local}]    ← only on first deploy; idempotent thereafter
           ├── local_file.dockerfile   → Dockerfile (airflow.Dockerfile.tftpl)
           ├── null_resource.build     → docker build -t ddt-airflow:latest
           ├── local_file.compose      → ~/.ddt/airflow/docker-compose.yml
@@ -70,7 +70,7 @@ ddt deploy [<name>]           reads catalog=gcp from project.yml
     │     │
     │     ├── Python: assemble pipeline build context → /tmp/ddt-pipeline-<name>/
     │     │
-    │     ├── terraform apply  [batch_pipeline/]
+    │     ├── terraform apply  [batch_pipeline/ {location=gcp}]
     │     │     ├── local_file.dockerfile → Dockerfile (batch_pipeline.Dockerfile.tftpl)
     │     │     ├── null_resource.build  → gcloud builds submit → Artifact Registry
     │     │     └── google_cloud_run_v2_job → ddt-job-<name>
@@ -78,7 +78,7 @@ ddt deploy [<name>]           reads catalog=gcp from project.yml
     │     └── Python: write DAG file → gs://<warehouse-bucket>/airflow/dags/<name>.py
     │                                   (CloudRunExecuteJobOperator — triggers ddt-job-<name>)
     │
-    └── terraform apply  [airflow/]          ← only on first deploy; idempotent thereafter
+    └── terraform apply  [airflow/ {location=gcp}]    ← only on first deploy; idempotent thereafter
           ├── local_file.dockerfile       → Dockerfile (airflow.Dockerfile.tftpl)
           ├── null_resource.build         → gcloud builds submit → Artifact Registry
           ├── google_sql_database_instance → Cloud SQL PostgreSQL (ddt-airflow-db)
@@ -104,7 +104,7 @@ ddt deploy [<name>]           reads catalog=gcp from project.yml
 ```
 ddt undeploy <name>
     │
-    ├── terraform destroy  [batch_pipeline[_local]/]
+    ├── terraform destroy  [batch_pipeline/ {location=local|gcp}]
     │     └── removes Cloud Run job (GCP) or local Docker image
     │
     └── Python: delete DAG file
@@ -155,7 +155,7 @@ Contents baked into image: `ddt/` source, `pyproject.toml`, `pipelines/<name>.ym
 
 **Dockerfile template:** `ddt/infra/modules/templates/airflow.Dockerfile.tftpl`
 
-Based on `apache/airflow:2.9-python3.12`. Providers installed at image build time:
+Based on `apache/airflow:2.10.4-python3.12`. Providers installed at image build time (run as `airflow` user — root pip install is blocked in 2.10+):
 - Local image: `apache-airflow-providers-docker`
 - GCP image: `apache-airflow-providers-google`
 
@@ -177,13 +177,14 @@ One `.py` file per deployed pipeline. Airflow polls for changes every 30 seconds
 **Written by:** `ddt deploy` (Python, after Terraform apply)
 **Deleted by:** `ddt undeploy` (Python, after Terraform destroy)
 
-Local DAG template uses `DockerOperator`:
+Local DAG template uses `DockerOperator` (`apache-airflow-providers-docker` 3.x API):
 ```python
+from docker.types import Mount
 DockerOperator(
     task_id="run_<name>",
     image="ddt-local/<name>:latest",
     environment={"PIPELINE_NAME": "<name>"},
-    volumes=["<warehouse_path>:/app/warehouse"],
+    mounts=[Mount(target="/app/warehouse", source="<warehouse_path>", type="bind")],
     docker_url="unix:///var/run/docker.sock",
     auto_remove="success",
 )
@@ -201,92 +202,97 @@ CloudRunExecuteJobOperator(
 
 ---
 
-### Terraform Module: `batch_pipeline_local/` (new)
+### Terraform Module: `batch_pipeline/`
 
 | Property | Value |
 |----------|-------|
-| **Type** | module |
+| **Type** | module (parent + two child modules) |
 | **Owner** | ddt code |
-| **Manages** | Airflow Dockerfile → local image build |
-| **Entrypoint** | `ddt/infra/modules/batch_pipeline_local/` |
+| **Entrypoint** | `ddt/infra/modules/batch_pipeline/` |
 
-**Resources:** `local_file.dockerfile`, `null_resource.build`
+The parent `batch_pipeline/main.tf` routes to the appropriate child module via a `location` variable and Terraform `count`:
 
-**Variables:** `pipeline_name`, `build_context`, `image_tag`, `content_hash`, `java_enabled` (default: `true`)
+```hcl
+module "local" {
+  count  = var.location == "local" ? 1 : 0
+  source = "./local"
+  ...
+}
 
-**Outputs:** `image_tag`
+module "gcp" {
+  count  = var.location == "gcp" ? 1 : 0
+  source = "./gcp"
+  ...
+}
+```
 
-**State:** `~/.ddt/terraform/pipelines/<name>/local/`
+Python always calls this single module, passing `location = "local"` or `location = "gcp"`. The GCP child module's google provider resources are only initialized when `location = "gcp"` — local-only users do not need GCP credentials.
+
+**Child module: `batch_pipeline/local/`**
+
+| Resource | Description |
+|----------|-------------|
+| `local_file.dockerfile` | Renders `batch_pipeline.Dockerfile.tftpl` into build context |
+| `null_resource.build` | `docker build -t ddt-local/<name>:latest` |
+
+Variables: `pipeline_name`, `build_context`, `image_tag`, `content_hash`, `java_enabled` (default: `true`)
+Output: `image_tag`
+
+**Child module: `batch_pipeline/gcp/`**
+
+| Resource | Description |
+|----------|-------------|
+| `local_file.dockerfile` | Renders `batch_pipeline.Dockerfile.tftpl` into build context |
+| `null_resource.build` | `gcloud builds submit` → Artifact Registry |
+| `google_cloud_run_v2_job` | Cloud Run job `ddt-job-<name>` |
+
+Variables: `pipeline_name`, `build_context`, `image_uri`, `sa_email`, `content_hash`, `java_enabled` (default: `false`), `project_id`, `region`
+Output: `job_name`
+
+**Shared template:** `ddt/infra/modules/templates/batch_pipeline.Dockerfile.tftpl` — referenced as `${path.module}/../templates/` from child modules (parent is always one level above child in the copied work dir tree).
+
+**State:** `~/.ddt/terraform/pipelines/<name>/local/` or `~/.ddt/terraform/pipelines/<name>/gcp/`
 
 ---
 
-### Terraform Module: `batch_pipeline/` (GCP, refined)
+### Terraform Module: `airflow/`
 
 | Property | Value |
 |----------|-------|
-| **Type** | module |
+| **Type** | module (parent + two child modules) |
 | **Owner** | ddt code |
-| **Manages** | Pipeline Dockerfile → Cloud Build → Artifact Registry image → Cloud Run job |
-| **Entrypoint** | `ddt/infra/modules/gcp/batch_pipeline/` (existing, modified) |
+| **Entrypoint** | `ddt/infra/modules/airflow/` |
 
-**Removed from current module:**
-- `google_storage_bucket_object.dag` — DAGs are now written directly by Python, not uploaded via Terraform
-- `dag_bucket`, `dag_blob_name`, `dag_content` variables
+Same parent-routes-to-child pattern as `batch_pipeline/`. Parent `airflow/main.tf` uses `count` on `module "local"` and `module "gcp"` blocks.
 
-**Added to current module:**
-- `local_file.dockerfile` — renders Dockerfile from template into build context
-- `null_resource.build` — runs `gcloud builds submit` (replaces Python `_build_image()`)
-- `build_context`, `content_hash`, `java_enabled` (default: `false`) variables
-- Fix: `pvc-job-` → `ddt-job-` in resource name
+**Child module: `airflow/local/`**
 
-**Variables:** `pipeline_name`, `build_context`, `image_uri`, `sa_email`, `content_hash`, `java_enabled`, `project_id`, `region`
+| Resource | Description |
+|----------|-------------|
+| `local_file.dockerfile` | Renders `airflow.Dockerfile.tftpl` with `target=local` |
+| `null_resource.build` | `docker build -t ddt-airflow-local:latest` |
+| `local_file.compose` | Renders `docker-compose.yml.tftpl` → `~/.ddt/airflow/docker-compose.yml` |
+| `null_resource.up` | `docker compose up -d` |
 
-**Outputs:** `job_name`
+Variables: `image_tag`, `dag_dir`, `warehouse_path`, `docker_socket`, `db_password`, `admin_password`, `fernet_key`, `webserver_port` (default: `8090`), `compose_file_path`
+Outputs: `webserver_url` (`http://localhost:<webserver_port>`), `compose_file`
 
-**State:** `~/.ddt/terraform/pipelines/<name>/gcp/`
+**Child module: `airflow/gcp/`**
 
----
+| Resource | Description |
+|----------|-------------|
+| `local_file.dockerfile` | Renders `airflow.Dockerfile.tftpl` with `target=gcp` |
+| `null_resource.build` | `gcloud builds submit` → Artifact Registry |
+| `google_sql_database_instance` | Cloud SQL PostgreSQL `ddt-airflow-db` (db-f1-micro) |
+| `google_sql_database` / `google_sql_user` | `airflow` database and user |
+| `google_cloud_run_v2_service` | `ddt-airflow` — min-instances=1, GCS DAG volume mount |
 
-### Terraform Module: `airflow_local/` (new)
+Variables: `image_uri`, `build_context`, `content_hash`, `project_id`, `region`, `sa_email`, `warehouse_bucket`, `db_password`, `admin_password`, `fernet_key`
+Outputs: `webserver_url`, `service_name`
 
-| Property | Value |
-|----------|-------|
-| **Type** | module |
-| **Owner** | ddt code |
-| **Manages** | Airflow Dockerfile → local image build → Docker Compose stack |
-| **Entrypoint** | `ddt/infra/modules/airflow_local/` |
+**Shared templates:** `airflow.Dockerfile.tftpl`, `docker-compose.yml.tftpl` — referenced as `${path.module}/../templates/` from child modules.
 
-**Resources:** `local_file.dockerfile`, `null_resource.build`, `local_file.compose`, `null_resource.up`
-
-**Variables:** `image_tag`, `dag_dir` (`~/.ddt/airflow/dags/`), `warehouse_path`, `docker_socket` (default: `unix:///var/run/docker.sock`), `db_password`, `admin_password`, `fernet_key`
-
-**Outputs:** `webserver_url` (`http://localhost:8080`), `compose_file`
-
-**State:** `~/.ddt/terraform/airflow/local/`
-
----
-
-### Terraform Module: `airflow/` (GCP, new)
-
-| Property | Value |
-|----------|-------|
-| **Type** | module |
-| **Owner** | ddt code |
-| **Manages** | Airflow Dockerfile → Cloud Build → Cloud SQL → Cloud Run service |
-| **Entrypoint** | `ddt/infra/modules/gcp/airflow/` |
-
-**Resources:**
-- `local_file.dockerfile`
-- `null_resource.build` — `gcloud builds submit` for Airflow image
-- `google_sql_database_instance.airflow_db` — Cloud SQL PostgreSQL (`db-f1-micro`)
-- `google_sql_database.airflow`, `google_sql_user.airflow`
-- `google_cloud_run_v2_service.airflow` — min-instances=1, gen2 execution environment, GCS volume mount for DAGs
-
-**Variables:** `image_uri`, `content_hash`, `project_id`, `region`, `sa_email`, `warehouse_bucket`, `db_password`, `admin_password`, `fernet_key`
-
-**Outputs:** `webserver_url`, `service_name`
-
-**State:** `~/.ddt/terraform/airflow/gcp/`
+**State:** `~/.ddt/terraform/airflow/local/` or `~/.ddt/terraform/airflow/gcp/`
 
 ---
 
@@ -353,12 +359,14 @@ deploy:
 
 ### Terraform Variable Summary
 
-| Module | Key variables |
-|--------|--------------|
-| `batch_pipeline_local/` | `pipeline_name`, `build_context`, `image_tag`, `content_hash`, `java_enabled` |
-| `batch_pipeline/` (GCP) | `pipeline_name`, `build_context`, `image_uri`, `sa_email`, `content_hash`, `java_enabled`, `project_id`, `region` |
-| `airflow_local/` | `image_tag`, `dag_dir`, `warehouse_path`, `docker_socket`, `db_password`, `admin_password`, `fernet_key` |
-| `airflow/` (GCP) | `image_uri`, `content_hash`, `project_id`, `region`, `sa_email`, `warehouse_bucket`, `db_password`, `admin_password`, `fernet_key` |
+| Module | `location` | Key variables |
+|--------|-----------|--------------|
+| `batch_pipeline/local/` | `local` | `pipeline_name`, `build_context`, `image_tag`, `content_hash`, `java_enabled` |
+| `batch_pipeline/gcp/` | `gcp` | `pipeline_name`, `build_context`, `image_uri`, `sa_email`, `content_hash`, `java_enabled`, `project_id`, `region` |
+| `airflow/local/` | `local` | `image_tag`, `dag_dir`, `warehouse_path`, `docker_socket`, `webserver_port`, `db_password`, `admin_password`, `fernet_key` |
+| `airflow/gcp/` | `gcp` | `image_uri`, `build_context`, `content_hash`, `project_id`, `region`, `sa_email`, `warehouse_bucket`, `db_password`, `admin_password`, `fernet_key` |
+
+Python always invokes the parent module (`batch_pipeline/` or `airflow/`) and passes `location`. The parent routes via `count` to the appropriate child.
 
 ### Inter-Service Protocols
 
@@ -382,7 +390,7 @@ deploy:
 | Airflow DB | PostgreSQL everywhere (Docker Compose locally; Cloud SQL on GCP) | SQLite; AlloyDB | SQLite corrupts under Airflow's concurrent scheduler + worker writes. AlloyDB is oversized. PostgreSQL is correct; Docker Compose makes the local case simple. |
 | DAG distribution | Files written to a mounted directory (host dir locally; GCS FUSE on GCP) | Baked into Airflow image; K8s ConfigMap | Image baking requires rebuilding Airflow on every pipeline change — makes undeploy slow and complex. Mounted directory lets Airflow pick up changes within 30s with no container restart. Consistent with how Airflow is typically operated. |
 | Airflow process model | `airflow standalone` (single process per container) | Separate scheduler + webserver services | `airflow standalone` is simpler to Terraform-manage for a single-project tool. Two Cloud Run services doubles cost and complexity. Known limitation: not recommended for high-scale; acceptable for a personal data lake. |
-| Dockerfile location | Terraform template (`*.Dockerfile.tftpl`) in shared `templates/` dir | Inline Python string; per-module templates | Single source of truth. Shared path (`${path.module}/../../templates/`) avoids duplication between local and GCP modules. |
+| Dockerfile location | Terraform template (`*.Dockerfile.tftpl`) in shared `templates/` dir | Inline Python string; per-module templates | Single source of truth. Templates live at the module tree root; child modules reference via `${path.module}/../templates/`. |
 | Build trigger | `content_hash` tfvar (SHA256 of build context files) | `timestamp()` (always rebuild) | `timestamp()` wastes Cloud Build minutes. Hash rebuilds only when source actually changes. |
 | `ddt undeploy` semantics | `terraform destroy` + delete DAG file | Pause DAG only; keep infrastructure | `terraform destroy` gives a clean, complete teardown matching the declarative model. Pausing leaves Cloud Run jobs and images consuming quota. |
 | GCS DAG path | Prefix in existing warehouse bucket (`airflow/dags/`) | Separate dedicated bucket | One less GCS bucket to manage. Warehouse bucket already exists from `ddt gcp setup`. |
@@ -409,7 +417,7 @@ The following are deferred by design:
 | Date | Decision | Rationale | Revisit If |
 |------|----------|-----------|------------|
 | 2026-05-14 | Container spec lives in Terraform template, not Python | Eliminates dual-definition bug (local vs GCP Dockerfiles); single source of truth | A future non-Terraform deployment path is added |
-| 2026-05-14 | Two separate Terraform modules per tier (local + GCP) for both pipeline and Airflow | Single module initializes the google provider even for local targets — breaks users with no GCP account | A Terraform multi-provider pattern emerges that handles conditional provider initialization |
+| 2026-05-14 | Parent module (`batch_pipeline/`, `airflow/`) with `location` variable routes to child modules via `count`; replaces flat `batch_pipeline_local/` and `gcp/batch_pipeline/` structure | Single entry point from Python; location semantics are explicit; GCP child module resources are only initialized when `location=gcp` so local-only users need no GCP credentials. `count=0` on GCP module avoids provider initialization at apply time. | A Terraform pattern that handles conditional provider initialization at init time (not just apply time) changes the tradeoff |
 | 2026-05-14 | Replace Cloud Composer with custom Airflow Docker app | Composer is outside Terraform's control (imperative gcloud). Custom Docker app is declarative, version-controlled, and follows the same local/cloud pattern as pipeline containers | Airflow operational complexity becomes too burdensome |
 | 2026-05-14 | DAGs mounted from directory; not baked into Airflow image | Image baking requires Airflow rebuild on every pipeline change. Mounted directory lets ddt write/delete DAG files and Airflow picks up changes in ~30s with no restart. Keeps undeploy = terraform destroy + delete file. | DAG count or size grows large enough to make GCS FUSE latency a problem |
 | 2026-05-14 | `ddt undeploy` = `terraform destroy` + delete DAG file | Clean, complete teardown matching the declarative model. Leaves no orphaned Cloud Run jobs or images. Warehouse data is not managed by Terraform and is untouched. | N/A |
