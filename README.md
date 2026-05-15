@@ -40,7 +40,7 @@ dependencies = [
 package = false
 
 [tool.uv.sources]
-ddt = { git = "https://github.com/zephschafer/ddt.git" }
+ddt = { git = "https://github.com/zephschafer/ddt.git" }    
 ```
 
 **`project.yml`** (gitignore this file — it holds your credentials):
