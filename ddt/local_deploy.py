@@ -362,7 +362,7 @@ def _airflow_build_context() -> Path:
 
 def _airflow_content_hash() -> str:
     """Hash of the airflow Dockerfile template to detect when Airflow image needs rebuild."""
-    template = _DDT_PKG_DIR / "infra" / "modules" / "templates" / "airflow.Dockerfile.tftpl"
+    template = _DDT_PKG_DIR / "infra" / "templates" / "airflow.Dockerfile.tftpl"
     return hashlib.sha256(template.read_bytes()).hexdigest()
 
 
