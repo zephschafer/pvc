@@ -450,11 +450,13 @@ def _generate_airflow_credentials(project_root: Path) -> dict:
 
     admin_password = cfg.get("airflow_admin_password")
     if not admin_password:
-        raise RuntimeError(
-            "airflow_admin_password is missing from project.yml.\n"
-            "Add it before running ddt deploy:\n\n"
-            "  airflow_admin_password: \"your-password-here\"\n"
-        )
+        import getpass
+        admin_password = getpass.getpass("Enter Airflow admin password: ").strip()
+        if not admin_password:
+            raise RuntimeError("Airflow admin password cannot be empty.")
+        cfg["airflow_admin_password"] = admin_password
+        cfg_path.write_text(yaml.dump(cfg, default_flow_style=False, sort_keys=False))
+        logger.info("Saved airflow_admin_password to project.yml")
 
     changed = False
 

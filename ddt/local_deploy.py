@@ -402,19 +402,25 @@ def _generate_airflow_credentials(project_root: Path) -> dict:
 
     admin_password = cfg.get("airflow_admin_password")
     if not admin_password:
-        raise RuntimeError(
-            "airflow_admin_password is missing from project.yml.\n"
-            "Add it before running ddt deploy:\n\n"
-            "  airflow_admin_password: \"your-password-here\"\n"
-        )
+        import getpass
+        admin_password = getpass.getpass("Enter Airflow admin password: ").strip()
+        if not admin_password:
+            raise RuntimeError("Airflow admin password cannot be empty.")
+        cfg["airflow_admin_password"] = admin_password
+        cfg_path.write_text(yaml.dump(cfg, default_flow_style=False, sort_keys=False))
+        logger.info("Saved airflow_admin_password to project.yml")
+
+    changed = False
 
     fernet_key = cfg.get("airflow_fernet_key")
     if not fernet_key:
         from cryptography.fernet import Fernet
         fernet_key = Fernet.generate_key().decode()
         cfg["airflow_fernet_key"] = fernet_key
+        changed = True
+
+    if changed:
         cfg_path.write_text(yaml.dump(cfg, default_flow_style=False, sort_keys=False))
-        logger.info("Generated and saved airflow_fernet_key to project.yml")
 
     return {
         "db_password": "airflow",
