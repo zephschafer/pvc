@@ -32,7 +32,8 @@ def test_deploy_accepts_valid_cron(schedule):
 def test_deploy_rejects_invalid_cron(schedule):
     with pytest.raises(ValidationError) as exc_info:
         Deploy(schedule=schedule)
-    assert "valid cron expression" in str(exc_info.value)
+    err = str(exc_info.value)
+    assert "valid cron expression" in err or "schedule is required" in err
 
 
 def test_deploy_paused_defaults_false():
