@@ -1,15 +1,15 @@
 # ddt
 
-Declarative Data Tool
+D.eclarative D.ata T.ool
 
 It works like this
 1. User defines pipelines with basic configs in a YAML (like a dbt model)
 2. ddt builds and runs the pipeline
 3. Data lake has data
 
-## Quickstart 
+## Quickstart
 
-This guide walks you from zero to a working data pipeline. The example ingests your private GitHub repositories — it covers credentials, schema projection, and warehouse querying in a single concrete run.
+This guide walks you from zero to a working data pipeline. The example ingests your GitHub repositories.
 
 ### Prerequisites
 
@@ -34,21 +34,23 @@ version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
     "ddt",
-    # add scraper dependencies here (e.g. beautifulsoup4)
 ]
 
 [tool.uv]
 package = false
 
 [tool.uv.sources]
-pvc = { git = "https://github.com/zephschafer/ddt.git" }    
+ddt = { git = "https://github.com/zephschafer/ddt.git" }
 ```
 
 **`project.yml`** (gitignore this file — it holds your credentials):
 
 ```yaml
+gh_pat: ghp_YOUR_TOKEN_HERE
 catalog: local
 ```
+
+Set `gh_pat` to a [GitHub personal access token](https://github.com/settings/tokens) with `repo` scope.
 
 **`.gitignore`:**
 
@@ -62,209 +64,80 @@ __pycache__/
 ```bash
 mkdir pipelines
 uv sync
-uv run ddt init        # prompts for API keys, region filter, catalog type → writes project.yml
-uv run ddt validate all
 ```
 
 ---
 
-### 2. Store your credentials
-
-```bash
-# Run a pipeline
-uv run ddt run <name>
-uv run ddt run all
-
-# Date range override (for pipelines with date_range iterate)
-uv run ddt run portland_permits --start 2024-01-01 --end 2024-03-31
-
-# Limit to first N iterations (useful for testing)
-uv run ddt run craigslist_apts --limit 1
-
-# Override a param at runtime
-uv run ddt run craigslist_apts --limit 1 --param max_records=5
-
-# Validate YAML without running
-uv run ddt validate <name>
-uv run ddt validate all
-
-# GCP cloud lake
-uv run ddt gcp setup --project-id <id> --region us-central1
-uv run ddt gcp status
-uv run ddt gcp teardown                  # destroys all GCP resources, resets to catalog: local
-
-# MCP server (for Claude integration)
-uv run ddt mcp serve
-uv run ddt mcp setup-desktop   # registers ddt in Claude Desktop's config
-```
-
-> `project.yml` is gitignored and never committed. It is the right place for API keys.
-
----
-
-### 3. Write a pipeline
+### 2. Write a pipeline
 
 Create `pipelines/github_repos.yml`:
 
 ```yaml
 version: 1
 name: github_repos
-namespace: github
-description: My private GitHub repositories
 
 source:
   type: http
   url: https://api.github.com/user/repos
-  method: GET
   auth:
     type: bearer
-    key: token       # required by the schema; not used in the request itself
-    value: "{{ env.GITHUB_TOKEN }}"
+    key: token
+    value: "{{ env.GH_PAT }}"
   params:
-    - name: visibility
-      type: string
-      value: private
     - name: per_page
       type: integer
       value: 100
 
 schema:
   columns:
-    - name: permit_id
-      path: PERMIT_ID      # key in raw record; dot-notation for nested JSON
-      type: string
-
-    - name: lon
-      transform:
-        type: crs_reproject
-        from_columns: [X_MERCATOR, Y_MERCATOR]
-        from_crs: EPSG:3857
-        to_crs: EPSG:4326
-        component: x       # x = longitude, y = latitude
-
-build:
-  strategy: incremental    # incremental | append | full_refresh
-  primary_key: permit_id
-
-  staging:                 # optional — write to partition-specific staging tables first
-    partition_param: category
-    table_pattern: "my_pipeline_{category}_staging"
-
-  merge:                   # optional — union staging tables into one deduplicated table
-    table: my_pipeline_loader
-    key: permit_id
-    dedup:
-      type: latest_non_null
-      columns: [reviewed_at, issued_at, finaled_at]
-```
-
-### Source types
-
-**`type: http`** — structured API responses (JSON or CSV). ddt constructs the request, handles auth, and parses the response.
-
-**`type: python`** — anything that needs custom logic: HTML scraping, multi-step auth, pagination that depends on response content. Write a Python function in `connectors/`; ddt calls it for each iteration.
-
-```yaml
-source:
-  type: python
-  module: connectors.craigslist_apts   # importable from the project root
-  function: fetch_region             # called as fn(dynamic_params) → list[dict]
-  params:
-    - name: region
-      type: string
-    - name: max_records
-      type: integer
-    - name: name
-      path: name
-      type: string
-    - name: full_name
-      path: full_name
-      type: string
-    - name: private
-      path: private
-      type: boolean
-    - name: description
-      path: description
-      type: string
-    - name: language
-      path: language
-      type: string
-    - name: stargazers_count
-      path: stargazers_count
-      type: integer
-    - name: forks_count
-      path: forks_count
-      type: integer
-    - name: created_at
-      path: created_at
-      type: timestamp
-    - name: updated_at
-      path: updated_at
-      type: timestamp
-    - name: default_branch
-      path: default_branch
-      type: string
-    - name: visibility
-      path: visibility
-      type: string
+    - {name: id,               path: id,               type: integer}
+    - {name: name,             path: name,             type: string}
+    - {name: full_name,        path: full_name,        type: string}
+    - {name: stargazers_count, path: stargazers_count, type: integer}
+    - {name: updated_at,       path: updated_at,       type: timestamp}
 
 build:
   strategy: incremental
   primary_key: id
+
+deploy:
+  schedule: "0 8 * * *"
 ```
 
-A few things to notice:
-
-- **`namespace: github`** — groups the table under `warehouse/github/`. Without this, the table lands under `warehouse/github_repos/`.
-- **`auth.key: token`** — bearer auth doesn't use the key field, but the schema requires it. Use any placeholder.
-- **`{{ env.GITHUB_TOKEN }}`** — resolved from `project.yml` or your shell environment at run time.
-- **`build.strategy: incremental`** — upserts on `id` each run, so re-running the same pipeline never creates duplicates.
-- **`type: boolean`** — ddt casts GitHub's JSON `true`/`false` to a native Python bool. Similarly, `timestamp` parses ISO 8601 strings with timezone info.
+`{{ env.GH_PAT }}` resolves to `gh_pat` from `project.yml` at run time.
 
 ---
 
-### 4. Validate
+### 3. Validate
 
 ```bash
 uv run ddt validate github_repos
 ```
 
-**With Spark:**
-
-```python
-from ddt.spark_session import get_spark
-spark = get_spark()
-
-spark.table("local.portland_permits.permits_loader").show()
-spark.sql("SELECT neighborhood, COUNT(*) FROM local.craigslist_apts.craigslist_apts GROUP BY 1").show()
-```
-
-> **Note:** validate does not check whether your credentials are set. That check happens at run time.
+> Validate checks the YAML structure but does not verify credentials.
 
 ---
 
-### 5. Test with one iteration
+### 4. Run
 
 ```bash
-uv run ddt run github_repos --limit 1
+uv run ddt run github_repos
 ```
 
 ```
 [ddt] Running 'github_repos' — 1 requests
 
   [1/1]
-    12 rows → writing
+    42 rows → writing
 
-[ddt] 'github_repos' complete → /your/project/warehouse/github/github_repos/data
+[ddt] 'github_repos' complete → /your/project/warehouse/github_repos/data
 ```
 
-The `--limit 1` flag restricts to the first iteration (useful when your pipeline iterates over many date ranges or categories). For a single-request pipeline like this one, it behaves identically to a full run.
-
-If your token is missing or wrong, you will see:
+If your token is missing or wrong:
 
 ```
 # Missing token:
-OSError: 'GITHUB_TOKEN' is not set — add it as an environment variable or set 'github_token' in project.yml
+OSError: 'GH_PAT' is not set — add it as an environment variable or set 'gh_pat' in project.yml
 
 # Wrong token:
 fetch error: 401 Client Error: Unauthorized for url: https://api.github.com/user/repos?...
@@ -272,52 +145,31 @@ fetch error: 401 Client Error: Unauthorized for url: https://api.github.com/user
 
 ---
 
-### 6. Query the warehouse
+### 5. Query the warehouse
 
-Data is written as Parquet files and is immediately queryable with DuckDB (no JVM startup):
+Data is written as Parquet files and is immediately queryable with DuckDB:
 
 ```python
 import duckdb
 
 conn = duckdb.connect()
 df = conn.execute("""
-    SELECT name, language, visibility, private
-    FROM read_parquet('warehouse/github/github_repos/data/*.parquet')
-    ORDER BY name
+    SELECT name, stargazers_count, updated_at
+    FROM read_parquet('warehouse/github_repos/data/*.parquet')
+    ORDER BY stargazers_count DESC
 """).fetchdf()
 print(df)
 ```
 
-Or if you have the MCP server running, use `query_warehouse` and ddt rewrites the table path for you:
-
 ---
 
-## Configuration — `project.yml`
-
-Created by `ddt init` at the project root. Gitignored.
-
-```yaml
-portlandmaps_api_key: ""   # blank = use built-in default key
-valid_regions: []           # empty = all regions; or [portland, eugene, ...]
-catalog: local              # local | gcp
-```
-
----
-
-### 7. Run fully and verify deduplication
+### 6. Deploy
 
 ```bash
-gcloud auth application-default login
-uv run ddt gcp setup --project-id my-project --region us-central1
-uv run ddt gcp status
+uv run ddt deploy github_repos
 ```
 
-Re-run it a second time. For `incremental` pipelines, the row count must stay the same — ddt upserts on `primary_key`, so repeated runs are idempotent:
-
-```python
-conn.execute("SELECT COUNT(*) FROM read_parquet('warehouse/github/github_repos/data/*.parquet')").fetchone()
-# (12,) — same count every time
-```
+This schedules the pipeline to run daily at 8 AM UTC, as configured in `deploy.schedule`.
 
 ---
 
@@ -335,7 +187,13 @@ uv run ddt mcp serve
 
 **Available tools:** `list_pipelines`, `get_pipeline`, `validate_pipeline`, `run_pipeline`, `list_warehouse_tables`, `query_warehouse`, `write_pipeline`, `write_scraper`.
 
-The `.claude/commands/` directory in your project repo can hold Claude skills (slash commands) that guide the pipeline creation workflow. See the demo project for working examples.
+For cloud deployment:
+
+```bash
+uv run ddt gcp setup --project-id <id> --region us-central1
+uv run ddt gcp status
+uv run ddt gcp teardown   # destroys all GCP resources, resets to catalog: local
+```
 
 ---
 
