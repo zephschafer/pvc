@@ -153,6 +153,82 @@ A few things to notice:
 - **`cadence.strategy: incremental`** — upserts on `id` each run, so re-running the same pipeline never creates duplicates.
 - **`type: boolean`** — ddt casts GitHub's JSON `true`/`false` to a native Python bool. Similarly, `timestamp` parses ISO 8601 strings with timezone info.
 
+### What this produces
+
+<table>
+<tr>
+<td valign="top" width="46%">
+
+**config** (key fields)
+
+```yaml
+source:
+  type: http
+  url: https://api.github.com/user/repos
+  auth:
+    type: bearer
+    value: "{{ env.GITHUB_TOKEN }}"
+  params:
+    - name: visibility
+      value: private
+    - name: per_page
+      value: 100
+  schema:
+    columns:
+      - name: id
+        path: id
+        type: integer
+      - name: name
+        path: name
+        type: string
+      # 10 more columns ...
+
+cadence:
+  strategy: incremental
+  primary_key: id
+```
+
+</td>
+<td valign="top" width="54%">
+
+**assembled request** _(1 request per run)_
+
+```
+GET https://api.github.com/user/repos
+    ?visibility=private
+    &per_page=100
+Authorization: Bearer ghp_xxxx...
+```
+
+**response**
+
+```json
+[
+  {"id": 12345, "name": "my-data", "language": "Python", ...},
+  {"id": 67890, "name": "my-api",  "language": "Go",     ...}
+]
+```
+
+**projected → warehouse** (`incremental` on `id`)
+
+```
+id       name      language   ...  (12 columns)
+──────── ───────── ──────────
+12345    my-data   Python
+67890    my-api    Go
+```
+
+**cadence** — runs once per `ddt run`, upserts on `id`
+
+```
+ddt run github_repos
+  → warehouse/github/github_repos/data/
+```
+
+</td>
+</tr>
+</table>
+
 ---
 
 ## 4. Validate
