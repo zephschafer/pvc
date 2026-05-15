@@ -322,6 +322,12 @@ def _tf_destroy_airflow_local() -> None:
         return
 
     print("  Destroying Airflow stack...", flush=True)
+    if _AIRFLOW_COMPOSE_FILE.exists():
+        subprocess.run(
+            ["docker", "compose", "-f", str(_AIRFLOW_COMPOSE_FILE), "down", "--volumes"],
+            check=False,
+        )
+
     env = _tf_env()
     _tf_run(["terraform", "destroy", "-auto-approve"], work_dir, env)
     shutil.rmtree(work_dir)
