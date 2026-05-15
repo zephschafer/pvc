@@ -1,8 +1,89 @@
 # Pipeline Config Reference
 
-A pipeline config supports the construction of a data request pattern. From it, ddt assembles the actual API calls — for example, a weekly date-range iteration over a GitHub endpoint becomes a series of requests like `GET https://api.github.com/repos/my-org/my-repo/commits?sha=main&since=2024-01-01T00:00:00Z&until=2024-01-07T00:00:00Z&per_page=100`, one per window. ddt then executes those requests at the cadence you define, extracts and shapes the results, and writes them to the warehouse.
+A pipeline config supports the construction of a data request pattern. From it, ddt assembles the actual API calls, executes them at the cadence you define, projects the results through a schema, and writes them to the warehouse.
 
-A pipeline config has five primary sections:
+<table>
+<tr>
+<td valign="top" width="46%">
+
+**config** (`pipelines/github_commits.yml`)
+
+```yaml
+source:
+  type: http
+  url: https://api.github.com/repos/
+       my-org/my-repo/commits
+  params:
+    - name: since
+      type: date
+      format: "%Y-%m-%dT%H:%M:%SZ"
+    - name: until
+      type: date
+      format: "%Y-%m-%dT%H:%M:%SZ"
+    - name: per_page
+      value: 100
+  schema:
+    columns:
+      - name: sha
+        path: sha
+        type: string
+      - name: message
+        path: commit.message
+        type: string
+
+cadence:
+  strategy: incremental
+  primary_key: sha
+  iterate:
+    - type: date_range
+      params: [since, until]
+      start: "2024-01-01"
+      end: today
+      step: 7 days
+```
+
+</td>
+<td valign="top" width="54%">
+
+**assembled request** _(once per 7-day window)_
+
+```
+GET https://api.github.com/repos/my-org/my-repo/commits
+    ?since=2024-01-01T00:00:00Z
+    &until=2024-01-07T00:00:00Z
+    &per_page=100
+```
+
+**response**
+
+```json
+[
+  {"sha": "a1b2c3", "commit": {"message": "fix: null check"}},
+  {"sha": "d4e5f6", "commit": {"message": "feat: add retry"}}
+]
+```
+
+**projected → warehouse** (`incremental` on `sha`)
+
+```
+sha       message
+──────── ─────────────────
+a1b2c3   fix: null check
+d4e5f6   feat: add retry
+```
+
+**cadence** — 124 windows, Jan 2024 → today
+
+```
+Jan 2024 [·  ·  ·  ·  ·  ·  ·  ·  ·  ·] May 2026
+  req 1   req 2   req 3   ···   req 124
+```
+
+</td>
+</tr>
+</table>
+
+A pipeline config has three primary sections:
 
 - **`source`** — where to fetch data from (HTTP API, Python function, or Pub/Sub), including the `schema` that defines which fields to extract
 - **`cadence`** — how many requests to make and how to store the results (iteration axes + write strategy)
