@@ -26,6 +26,9 @@ ddt = "ddt.cli:app"
 [tool.setuptools.packages.find]
 include = ["ddt*"]
 
+[tool.setuptools.package-data]
+ddt = ["infra/**/*"]
+
 [tool.uv]
 package = true
 dev-dependencies = ["pytest>=8.0"]
