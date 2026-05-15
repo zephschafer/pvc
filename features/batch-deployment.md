@@ -22,9 +22,9 @@ As a developer who has built and validated a ddt pipeline, I want to deploy it a
 
 ### Must Have
 
-- Deployment configuration is declared in the pipeline YAML under a `deploy:` block (schedule, and any infrastructure overrides)
-- `ddt deploy <pipeline-name>` reads the `deploy:` block from the pipeline YAML and provisions the job on GCP
-- `ddt deploy` errors clearly if the pipeline YAML has no `deploy:` block
+- Deployment configuration is declared in the pipeline YAML under a `deployment:` block (schedule, and any infrastructure overrides)
+- `ddt deploy <pipeline-name>` reads the `deployment:` block from the pipeline YAML and provisions the job on GCP
+- `ddt deploy` errors clearly if the pipeline YAML has no `deployment:` block
 - The deployed job runs `ddt run <pipeline-name>` on the schedule declared in the pipeline YAML
 - Infrastructure is provisioned via ddt's own Terraform modules — the user never writes Terraform
 - Scheduling is handled by Cloud Composer (managed Apache Airflow); execution runs in a Cloud Run job
@@ -38,20 +38,20 @@ As a developer who has built and validated a ddt pipeline, I want to deploy it a
 
 - `ddt deploy status <pipeline-name>` shows current deployment state and last run outcome
 - `ddt deploy status` (no arg) lists all deployed pipelines and their schedules
-- Infrastructure overrides in the `deploy:` block (Composer environment size, Cloud Run CPU/memory, region, or execution target like Dataproc)
-- `paused: true` in the `deploy:` block to provision a DAG without activating it
-- Failure notifications (email or webhook) configurable in the `deploy:` block
+- Infrastructure overrides in the `deployment:` block (Composer environment size, Cloud Run CPU/memory, region, or execution target like Dataproc)
+- `paused: true` in the `deployment:` block to provision a DAG without activating it
+- Failure notifications (email or webhook) configurable in the `deployment:` block
 
 ## Acceptance Criteria
 
-- [ ] `pipelines/github_repos.yml` with a `deploy: { schedule: "0 8 * * *" }` block is accepted by `ddt validate github_repos` without error
+- [ ] `pipelines/github_repos.yml` with a `deployment: { schedule: "0 8 * * *" }` block is accepted by `ddt validate github_repos` without error
 - [ ] `ddt deploy github_repos` completes without error on a project with `catalog: gcp` and completed GCP setup
 - [ ] A Cloud Composer DAG named `github_repos` is visible in the Composer UI after deploy
 - [ ] The DAG triggers on the cron schedule declared in the pipeline YAML and runs to completion
 - [ ] The pipeline run inside the Cloud Run job writes rows to `gs://<warehouse-bucket>/github_repos/github_repos/data/`
 - [ ] `ddt undeploy github_repos` removes the DAG from Composer and the Cloud Run job; warehouse data is untouched
 - [ ] Running `ddt deploy github_repos` a second time does not create a second DAG — it updates the existing one to match the current pipeline YAML
-- [ ] `ddt deploy github_repos` on a pipeline YAML with no `deploy:` block exits with a clear error message
+- [ ] `ddt deploy github_repos` on a pipeline YAML with no `deployment:` block exits with a clear error message
 - [ ] `ddt deploy github_repos` without `catalog: gcp` in `project.yml` exits with a clear error message
 - [ ] Deployment state (`schedule`, `dag_id`, `cloud_run_job`) is written to `project.yml` under `deployments.github_repos`
 
@@ -102,19 +102,18 @@ The Cloud Run job must run `ddt run <pipeline>`, which requires the ddt package,
 
 Option 1 is the cleanest long-term but requires a `ddt build` step. Option 2 avoids a container build but adds runtime complexity. **This is the primary open design question for implementation.**
 
-### Pipeline YAML: `deploy:` block
+### Pipeline YAML: `deployment:` block
 
-The `deploy:` block is added to a pipeline's YAML alongside `source`, `schema`, and `build`. Example:
+The `deployment:` block is added to a pipeline's YAML alongside `source` and `cadence`. Example:
 
 ```yaml
 # pipelines/github_repos.yml
 version: 1
 name: github_repos
 source: ...
-schema: ...
 cadence: ...
 
-deploy:
+deployment:
   schedule: "0 8 * * *"   # cron — required
   paused: false            # optional, default false
   # Future overrides:
@@ -124,7 +123,7 @@ deploy:
   # execution_target: dataproc  # override from default Cloud Run
 ```
 
-The `deploy:` block requires a new `Deploy` model in `ddt/config/models.py` and a new `Pipeline.deploy` optional field. `ddt validate` should check that `schedule` is a valid cron expression when a `deploy:` block is present.
+The `deployment:` block requires a `Deployment` model in `ddt/config/models.py` and a `Pipeline.deployment` optional field. `ddt validate` should check that `schedule` is a valid cron expression when a `deployment:` block is present.
 
 ### CLI surface
 

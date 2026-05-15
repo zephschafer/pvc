@@ -12,7 +12,7 @@ following all fixes from the Round 1 (failure) and Round 2 (success with in-run 
 
 - [x] Phase 1: `ddt validate github_repos` accepts a `deploy: { schedule: "0 8 * * *" }` block
 - [x] Phase 1: `ddt validate` rejects an invalid cron expression with a clear error message
-  - Error text: `deploy.schedule 'not a cron' is not a valid cron expression. Expected 5 space-separated fields...`
+  - Error text: `deployment.schedule 'not a cron' is not a valid cron expression. Expected 5 space-separated fields...`
 - [x] Phase 1: `ddt validate` on a pipeline without `deploy:` is unaffected (no regression)
   - `ddt validate craigslist_apts` → OK
 - [x] Phase 2: `ddt deploy github_repos` completes without error
@@ -24,8 +24,8 @@ following all fixes from the Round 1 (failure) and Round 2 (success with in-run 
   - `ddt-job-github-repos` in `us-central1` confirmed (Ready)
 - [x] Phase 2: `project.yml` records `deployments.github_repos` with schedule, dag_id, cloud_run_job
   - Full state written including `composer_env`, `image_uri`, `deployed_at`
-- [x] Phase 2: `ddt deploy` on a pipeline with no `deploy:` block exits with a clear error
-  - `ddt deploy craigslist_apts` → "has no 'deploy:' block in its pipeline YAML"
+- [x] Phase 2: `ddt deploy` on a pipeline with no `deployment:` block exits with a clear error
+  - `ddt deploy craigslist_apts` → "has no 'deployment:' block in its pipeline YAML"
 - [x] Phase 2: `ddt deploy` without `catalog: gcp` exits with a clear error
   - Tested first (test_config.yml has `catalog: local`) → "catalog is not 'gcp'. Batch deployment requires a GCP data lake."
 - [x] Phase 3: DAG run completes successfully
@@ -48,7 +48,7 @@ following all fixes from the Round 1 (failure) and Round 2 (success with in-run 
 - All four phases passed cleanly with no errors or unexpected behavior
 - F-033 fix verified: existing Composer environment found and reused without provisioning wait
 - F-034 fix verified: Cloud Run container completed successfully (no JAVA_GATEWAY_EXITED)
-- Error cases (no `deploy:` block, wrong catalog) produce clear, actionable messages
+- Error cases (no `deployment:` block, wrong catalog) produce clear, actionable messages
 - Undeploy confirmation prompt names the resources that will be removed and explicitly notes data is preserved
 
 ## New Findings
@@ -118,6 +118,6 @@ cadence:
   strategy: incremental
   primary_key: id
 
-deploy:
+deployment:
   schedule: "0 8 * * *"
 ```

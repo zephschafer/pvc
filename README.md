@@ -87,20 +87,19 @@ source:
     - name: per_page
       type: integer
       value: 100
-
-schema:
-  columns:
-    - {name: id,               path: id,               type: integer}
-    - {name: name,             path: name,             type: string}
-    - {name: full_name,        path: full_name,        type: string}
-    - {name: stargazers_count, path: stargazers_count, type: integer}
-    - {name: updated_at,       path: updated_at,       type: timestamp}
+  schema:
+    columns:
+      - {name: id,               path: id,               type: integer}
+      - {name: name,             path: name,             type: string}
+      - {name: full_name,        path: full_name,        type: string}
+      - {name: stargazers_count, path: stargazers_count, type: integer}
+      - {name: updated_at,       path: updated_at,       type: timestamp}
 
 cadence:
   strategy: incremental
   primary_key: id
 
-deploy:
+deployment:
   schedule: "0 8 * * *"
 ```
 
@@ -169,7 +168,7 @@ print(df)
 uv run ddt deploy github_repos
 ```
 
-This schedules the pipeline to run daily at 8 AM UTC, as configured in `deploy.schedule`.
+This schedules the pipeline to run daily at 8 AM UTC, as configured in `deployment.schedule`.
 
 ---
 

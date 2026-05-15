@@ -81,7 +81,7 @@ the Dockerfile template renders differently for `java_enabled=true` vs `false`.
 
 ### Phase 2 — Local Pipeline Deploy via Terraform
 
-1. Write the `github_repos.yml` pipeline to `$CLONE/pipelines/` with a `deploy:` block:
+1. Write the `github_repos.yml` pipeline to `$CLONE/pipelines/` with a `deployment:` block:
    ```yaml
    version: 1
    name: github_repos
@@ -103,7 +103,7 @@ the Dockerfile template renders differently for `java_enabled=true` vs `false`.
    deploy:
      schedule: "0 8 * * *"
    ```
-2. Run `ddt validate github_repos` — confirm the `deploy:` block is accepted without error.
+2. Run `ddt validate github_repos` — confirm the `deployment:` block is accepted without error.
 3. Run `ddt deploy github_repos`:
    ```bash
    DDT_PROJECT_DIR=$CLONE uv --directory /path/to/ddt run ddt deploy github_repos
@@ -133,10 +133,10 @@ the Dockerfile template renders differently for `java_enabled=true` vs `false`.
 8. Run `ddt validate github_repos` with `schedule: "not a cron"` — confirm rejection with
    clear error message. Then restore the valid schedule.
 9. Test the no-deploy-block error path:
-   - Remove the `deploy:` block from `github_repos.yml`
+   - Remove the `deployment:` block from `github_repos.yml`
    - Run `ddt deploy github_repos` — confirm it exits with a clear error (not a traceback)
-   - Restore the `deploy:` block
-10. Test `ddt deploy` with no args (if two pipelines with `deploy:` blocks exist):
+   - Restore the `deployment:` block
+10. Test `ddt deploy` with no args (if two pipelines with `deployment:` blocks exist):
     - Create a second pipeline YAML (e.g., copy `github_repos.yml` as `github_repos_2.yml`)
     - Run `ddt deploy` (no pipeline name) — confirm both are deployed
 
@@ -237,7 +237,7 @@ idempotent for the Airflow stack.
 - [ ] Phase 2: `ddt deploy github_repos` (local) exits 0 and builds `ddt-local/github_repos:latest`
 - [ ] Phase 2: `~/.ddt/terraform/pipelines/github_repos/local/terraform.tfstate` exists after deploy
 - [ ] Phase 2: `~/.ddt/airflow/dags/github_repos.py` exists and contains `DockerOperator`
-- [ ] Phase 2: `ddt deploy github_repos` on a pipeline with no `deploy:` block exits with a clear error (not a traceback)
+- [ ] Phase 2: `ddt deploy github_repos` on a pipeline with no `deployment:` block exits with a clear error (not a traceback)
 - [ ] Phase 3: Second `ddt deploy github_repos` is idempotent — no new image built when content unchanged
 - [ ] Phase 3: Modifying a pipeline file changes the content_hash and triggers an image rebuild
 - [ ] Phase 3: `ddt undeploy github_repos` removes the Docker image, DAG file, and Terraform state dir

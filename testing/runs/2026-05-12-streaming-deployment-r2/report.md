@@ -88,7 +88,7 @@ schema:
     - {name: timestamp, path: timestamp, type: timestamp}
 cadence:
   strategy: append
-deploy:
+deployment:
   type: streaming
   window_seconds: 60
 ```

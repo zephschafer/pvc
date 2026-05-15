@@ -1,13 +1,13 @@
-"""Tests for Deploy model and cron validation (F-030)."""
+"""Tests for Deployment model and cron validation (F-030)."""
 
 import pytest
 from pydantic import ValidationError
 
-from ddt.config.models import Deploy, Pipeline
+from ddt.config.models import Deployment, Pipeline
 
 
 # ------------------------------------------------------------------ #
-# Deploy model — cron validation                                       #
+# Deployment model — cron validation                                   #
 # ------------------------------------------------------------------ #
 
 @pytest.mark.parametrize("schedule", [
@@ -17,8 +17,8 @@ from ddt.config.models import Deploy, Pipeline
     "0 0 * * 0",        # weekly on Sunday
     "30 6 * * 1-5",     # weekdays at 6:30
 ])
-def test_deploy_accepts_valid_cron(schedule):
-    d = Deploy(schedule=schedule)
+def test_deployment_accepts_valid_cron(schedule):
+    d = Deployment(schedule=schedule)
     assert d.schedule == schedule
 
 
@@ -29,25 +29,25 @@ def test_deploy_accepts_valid_cron(schedule):
     "",
     "8am daily",
 ])
-def test_deploy_rejects_invalid_cron(schedule):
+def test_deployment_rejects_invalid_cron(schedule):
     with pytest.raises(ValidationError) as exc_info:
-        Deploy(schedule=schedule)
+        Deployment(schedule=schedule)
     err = str(exc_info.value)
     assert "valid cron expression" in err or "schedule is required" in err
 
 
-def test_deploy_paused_defaults_false():
-    d = Deploy(schedule="0 8 * * *")
+def test_deployment_paused_defaults_false():
+    d = Deployment(schedule="0 8 * * *")
     assert d.paused is False
 
 
-def test_deploy_paused_can_be_set():
-    d = Deploy(schedule="0 8 * * *", paused=True)
+def test_deployment_paused_can_be_set():
+    d = Deployment(schedule="0 8 * * *", paused=True)
     assert d.paused is True
 
 
 # ------------------------------------------------------------------ #
-# Pipeline.deploy field                                                #
+# Pipeline.deployment field                                            #
 # ------------------------------------------------------------------ #
 
 _PIPELINE_BASE = {
@@ -55,29 +55,29 @@ _PIPELINE_BASE = {
     "source": {
         "type": "http",
         "url": "https://example.com/api",
-    },
-    "schema": {
-        "columns": [{"name": "id", "path": "id", "type": "integer"}],
+        "schema": {
+            "columns": [{"name": "id", "path": "id", "type": "integer"}],
+        },
     },
     "cadence": {"strategy": "incremental", "primary_key": "id"},
 }
 
 
-def test_pipeline_deploy_optional():
+def test_pipeline_deployment_optional():
     p = Pipeline.from_dict(_PIPELINE_BASE)
-    assert p.deploy is None
+    assert p.deployment is None
 
 
-def test_pipeline_deploy_parsed():
-    data = {**_PIPELINE_BASE, "deploy": {"schedule": "0 8 * * *"}}
+def test_pipeline_deployment_parsed():
+    data = {**_PIPELINE_BASE, "deployment": {"schedule": "0 8 * * *"}}
     p = Pipeline.from_dict(data)
-    assert p.deploy is not None
-    assert p.deploy.schedule == "0 8 * * *"
-    assert p.deploy.paused is False
+    assert p.deployment is not None
+    assert p.deployment.schedule == "0 8 * * *"
+    assert p.deployment.paused is False
 
 
-def test_pipeline_deploy_invalid_cron_raises():
-    data = {**_PIPELINE_BASE, "deploy": {"schedule": "not a cron"}}
+def test_pipeline_deployment_invalid_cron_raises():
+    data = {**_PIPELINE_BASE, "deployment": {"schedule": "not a cron"}}
     with pytest.raises(ValidationError) as exc_info:
         Pipeline.from_dict(data)
     assert "valid cron expression" in str(exc_info.value)

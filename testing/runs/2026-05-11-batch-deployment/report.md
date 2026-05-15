@@ -25,8 +25,8 @@ All 15 success criteria passed. One new blocking finding (F-034: Spark init cras
   - `ddt-job-github-repos` in `us-central1` confirmed
 - [x] Phase 2: `project.yml` records `deployments.github_repos` with schedule, dag_id, cloud_run_job
   - Full deployment state written including `deployed_at` timestamp
-- [x] Phase 2: `ddt deploy` on a pipeline with no `deploy:` block exits with a clear error
-  - Tested against `craigslist_apts.yml`: "Pipeline 'craigslist_apts' has no 'deploy:' block"
+- [x] Phase 2: `ddt deploy` on a pipeline with no `deployment:` block exits with a clear error
+  - Tested against `craigslist_apts.yml`: "Pipeline 'craigslist_apts' has no 'deployment:' block"
 - [x] Phase 2: `ddt deploy` without `catalog: gcp` exits with a clear error
   - Confirmed by CLI unit test (verified with CliRunner)
 - [x] Phase 3: DAG run completes successfully
@@ -127,6 +127,6 @@ cadence:
   strategy: incremental
   primary_key: id
 
-deploy:
+deployment:
   schedule: "0 8 * * *"
 ```

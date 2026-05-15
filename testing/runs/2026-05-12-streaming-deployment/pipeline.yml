@@ -1,13 +1,11 @@
 version: 1
 name: click_events
 description: Clickstream events from the product UI
-
 source:
   type: pubsub
   subscription: projects/quipu-data-generator/subscriptions/ddt-test-clicks-sub
-
-schema:
-  columns:
+  schema:
+    columns:
     - name: event_id
       path: event_id
       type: string
@@ -23,10 +21,8 @@ schema:
     - name: timestamp
       path: timestamp
       type: timestamp
-
 cadence:
   strategy: append
-
-deploy:
+deployment:
   type: streaming
   window_seconds: 60

@@ -4,10 +4,9 @@ A pipeline config supports the construction of a data request pattern. From it, 
 
 A pipeline config has five primary sections:
 
-- **`source`** — where to fetch data from (HTTP API, Python function, or Pub/Sub)
+- **`source`** — where to fetch data from (HTTP API, Python function, or Pub/Sub), including the `schema` that defines which fields to extract
 - **`cadence`** — how many requests to make and how to store the results (iteration axes + write strategy)
-- **`schema`** — which fields to extract and how to cast or transform them
-- **`deploy`** — when to run (cron schedule for batch, or streaming via Pub/Sub)
+- **`deployment`** — when to run (cron schedule for batch, or streaming via Pub/Sub)
 
 ---
 
@@ -51,6 +50,14 @@ source:
   rate_limit:
     requests: 500
     per_minutes: 15
+  schema:
+    columns:
+      - name: id
+        path: id
+        type: integer
+      - name: created_at
+        path: created_at
+        type: timestamp
 ```
 
 **Auth types:**
@@ -76,6 +83,11 @@ source:
     - name: org
       type: string
       value: my-org
+  schema:
+    columns:
+      - name: id
+        path: id
+        type: string
 ```
 
 The function must have the signature:
@@ -95,9 +107,14 @@ Subscribes to a Google Cloud Pub/Sub topic for streaming ingestion.
 source:
   type: pubsub
   subscription: projects/my-project/subscriptions/my-sub
+  schema:
+    columns:
+      - name: id
+        path: id
+        type: string
 ```
 
-Pub/Sub sources require `deploy.type: streaming` and `cadence.strategy: append`. See [deploy](#deploy--scheduling).
+Pub/Sub sources require `deployment.type: streaming` and `cadence.strategy: append`. See [deployment](#deployment--scheduling).
 
 ### Environment variable resolution
 
@@ -112,6 +129,67 @@ auth:
   type: query_param
   key: api_key
   value: "{{ env.PORTLANDMAPS_API_KEY }}"
+```
+
+### `schema` — what columns to extract
+
+The `schema` sub-field of `source` declares the output columns. Columns not listed here are dropped.
+
+```yaml
+source:
+  type: http
+  url: https://api.example.com/records
+  ...
+  schema:
+    columns:
+      - name: id
+        path: id              # dot-notation path into the raw record
+        type: integer
+      - name: owner
+        path: owner.login     # nested path
+        type: string
+      - name: created_at
+        path: created_at
+        type: timestamp
+```
+
+**Column fields:**
+
+| Field       | Required | Description                                                   |
+|-------------|----------|---------------------------------------------------------------|
+| `name`      | yes      | Output column name                                            |
+| `path`      | yes*     | Dot-notation path to value in raw record                      |
+| `type`      | no       | Cast target (see below)                                       |
+| `transform` | yes*     | Transform block (mutually exclusive with `path`)              |
+
+*Each column must have either `path` or `transform`.
+
+**Types:** `string`, `integer`, `float`, `boolean`, `date`, `timestamp`. Values that can't be cast become `null`.
+
+#### Transforms
+
+Use a `transform` block instead of `path` for derived columns.
+
+**`array_join`** — flatten an array field to a delimited string:
+
+```yaml
+- name: labels
+  transform:
+    type: array_join
+    path: labels           # dot-path to the array in the raw record
+    separator: ","         # default ","
+```
+
+**`crs_reproject`** — reproject a coordinate pair between coordinate reference systems:
+
+```yaml
+- name: lon
+  transform:
+    type: crs_reproject
+    from_columns: [X_WEB_MERCATOR, Y_WEB_MERCATOR]  # [x, y] column names in raw record
+    from_crs: EPSG:3857
+    to_crs: EPSG:4326
+    component: x           # extract x or y from reprojected result
 ```
 
 ---
@@ -205,69 +283,10 @@ For pipelines that write to multiple staging tables before merging into a final 
 
 ---
 
-## `schema` — what columns to extract
-
-The `schema` block declares the output columns. Columns not listed here are dropped.
+## `deployment` — scheduling
 
 ```yaml
-schema:
-  columns:
-    - name: id
-      path: id              # dot-notation path into the raw record
-      type: integer
-    - name: owner
-      path: owner.login     # nested path
-      type: string
-    - name: created_at
-      path: created_at
-      type: timestamp
-```
-
-**Column fields:**
-
-| Field       | Required | Description                                                   |
-|-------------|----------|---------------------------------------------------------------|
-| `name`      | yes      | Output column name                                            |
-| `path`      | yes*     | Dot-notation path to value in raw record                      |
-| `type`      | no       | Cast target (see below)                                       |
-| `transform` | yes*     | Transform block (mutually exclusive with `path`)              |
-
-*Each column must have either `path` or `transform`.
-
-**Types:** `string`, `integer`, `float`, `boolean`, `date`, `timestamp`. Values that can't be cast become `null`.
-
-### Transforms
-
-Use a `transform` block instead of `path` for derived columns.
-
-**`array_join`** — flatten an array field to a delimited string:
-
-```yaml
-- name: labels
-  transform:
-    type: array_join
-    path: labels           # dot-path to the array in the raw record
-    separator: ","         # default ","
-```
-
-**`crs_reproject`** — reproject a coordinate pair between coordinate reference systems:
-
-```yaml
-- name: lon
-  transform:
-    type: crs_reproject
-    from_columns: [X_WEB_MERCATOR, Y_WEB_MERCATOR]  # [x, y] column names in raw record
-    from_crs: EPSG:3857
-    to_crs: EPSG:4326
-    component: x           # extract x or y from reprojected result
-```
-
----
-
-## `deploy` — scheduling
-
-```yaml
-deploy:
+deployment:
   type: batch          # batch (default) or streaming
   schedule: "0 8 * * *"
   paused: false
@@ -281,7 +300,7 @@ deploy:
 
 `streaming` requires `source.type: pubsub` and `cadence.strategy: append`.
 
-Omitting the `deploy` block makes the pipeline manual-only (run with `ddt run`).
+Omitting the `deployment` block makes the pipeline manual-only (run with `ddt run`).
 
 ---
 
@@ -299,7 +318,7 @@ For each param dict, calls the source (HTTP request, Python function, or Pub/Sub
 
 **3. Project**
 
-Applies the `schema` to the raw records:
+Applies the `source.schema` to the raw records:
 - Extracts values by dot-notation `path` or `transform`
 - Casts each column to its declared `type`
 - Drops any fields not listed in the schema
@@ -360,24 +379,23 @@ source:
   rate_limit:
     requests: 60
     per_minutes: 60           # GitHub's unauthenticated rate limit is 60/hr; authenticated is 5000/hr
-
-schema:
-  columns:
-    - name: sha
-      path: sha
-      type: string
-    - name: author
-      path: commit.author.name
-      type: string
-    - name: email
-      path: commit.author.email
-      type: string
-    - name: message
-      path: commit.message
-      type: string
-    - name: committed_at
-      path: commit.author.date
-      type: timestamp           # cast from ISO string to timestamp
+  schema:
+    columns:
+      - name: sha
+        path: sha
+        type: string
+      - name: author
+        path: commit.author.name
+        type: string
+      - name: email
+        path: commit.author.email
+        type: string
+      - name: message
+        path: commit.message
+        type: string
+      - name: committed_at
+        path: commit.author.date
+        type: timestamp           # cast from ISO string to timestamp
 
 cadence:
   strategy: incremental
@@ -389,7 +407,7 @@ cadence:
       end: today
       step: 7 days            # one request per week
 
-deploy:
+deployment:
   type: batch
   schedule: "0 6 * * 1"      # every Monday at 6 AM UTC — catches the prior week's commits
 ```

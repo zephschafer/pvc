@@ -76,37 +76,6 @@ def _validate_dynamic_params(params: list[Param], iterate: list[IterateSpec]) ->
 
 
 # ------------------------------------------------------------------ #
-# Source types                                                         #
-# ------------------------------------------------------------------ #
-
-class HttpSource(BaseModel):
-    type: Literal["http"]
-    url: str
-    method: Literal["GET", "POST"] = "GET"
-    auth: Auth | None = None
-    params: list[Param] = []
-    response: Response = Response(format="json")
-    rate_limit: RateLimit | None = None
-
-
-class PythonSource(BaseModel):
-    """Calls a Python function that returns list[dict]; handles its own pagination."""
-    type: Literal["python"]
-    module: str       # importable module path, e.g. "connectors.craigslist_apts"
-    function: str     # function name; called as fn(dynamic_params) -> list[dict]
-    params: list[Param] = []
-
-
-class PubSubSource(BaseModel):
-    """Continuously reads JSON messages from a GCP Pub/Sub subscription."""
-    type: Literal["pubsub"]
-    subscription: str   # full resource path: projects/<project>/subscriptions/<name>
-
-
-Source = Annotated[Union[HttpSource, PythonSource, PubSubSource], Field(discriminator="type")]
-
-
-# ------------------------------------------------------------------ #
 # Schema                                                               #
 # ------------------------------------------------------------------ #
 
@@ -148,7 +117,44 @@ class Schema(BaseModel):
 
 
 # ------------------------------------------------------------------ #
-# Build                                                                #
+# Source types                                                         #
+# ------------------------------------------------------------------ #
+
+class HttpSource(BaseModel):
+    model_config = {"populate_by_name": True}
+    type: Literal["http"]
+    url: str
+    method: Literal["GET", "POST"] = "GET"
+    auth: Auth | None = None
+    params: list[Param] = []
+    response: Response = Response(format="json")
+    rate_limit: RateLimit | None = None
+    schema_: Schema = Field(alias="schema")
+
+
+class PythonSource(BaseModel):
+    """Calls a Python function that returns list[dict]; handles its own pagination."""
+    model_config = {"populate_by_name": True}
+    type: Literal["python"]
+    module: str       # importable module path, e.g. "connectors.craigslist_apts"
+    function: str     # function name; called as fn(dynamic_params) -> list[dict]
+    params: list[Param] = []
+    schema_: Schema = Field(alias="schema")
+
+
+class PubSubSource(BaseModel):
+    """Continuously reads JSON messages from a GCP Pub/Sub subscription."""
+    model_config = {"populate_by_name": True}
+    type: Literal["pubsub"]
+    subscription: str   # full resource path: projects/<project>/subscriptions/<name>
+    schema_: Schema = Field(alias="schema")
+
+
+Source = Annotated[Union[HttpSource, PythonSource, PubSubSource], Field(discriminator="type")]
+
+
+# ------------------------------------------------------------------ #
+# Cadence                                                              #
 # ------------------------------------------------------------------ #
 
 class StagingConfig(BaseModel):
@@ -176,10 +182,10 @@ class Cadence(BaseModel):
 
 
 # ------------------------------------------------------------------ #
-# Deploy                                                               #
+# Deployment                                                           #
 # ------------------------------------------------------------------ #
 
-class Deploy(BaseModel):
+class Deployment(BaseModel):
     type: Literal["batch", "streaming"] = "batch"
     # batch fields
     schedule: str | None = None
@@ -188,17 +194,17 @@ class Deploy(BaseModel):
     window_seconds: int = 60
 
     @model_validator(mode="after")
-    def validate_deploy(self) -> "Deploy":
+    def validate_deployment(self) -> "Deployment":
         if self.type == "batch":
             if not self.schedule:
                 raise ValueError(
-                    "deploy.schedule is required for batch deployments "
+                    "deployment.schedule is required for batch deployments "
                     "(e.g. schedule: \"0 8 * * *\")"
                 )
             parts = self.schedule.strip().split()
             if len(parts) != 5 or not all(_CRON_FIELD_RE.match(p) for p in parts):
                 raise ValueError(
-                    f"deploy.schedule '{self.schedule}' is not a valid cron expression. "
+                    f"deployment.schedule '{self.schedule}' is not a valid cron expression. "
                     "Expected 5 space-separated fields: minute hour day-of-month month day-of-week "
                     "(e.g. '0 8 * * *' for daily at 8 AM UTC)"
                 )
@@ -215,9 +221,8 @@ class Pipeline(BaseModel):
     namespace: str | None = None   # warehouse namespace; defaults to pipeline name when absent
     description: str | None = None
     source: Source
-    schema_: Schema
     cadence: Cadence
-    deploy: Deploy | None = None
+    deployment: Deployment | None = None
 
     model_config = {"populate_by_name": True}
 
@@ -231,10 +236,6 @@ class Pipeline(BaseModel):
             _validate_dynamic_params(self.source.params, self.cadence.iterate)
         return self
 
-    # Allow "schema" key in YAML (reserved word in Python)
     @classmethod
     def from_dict(cls, data: dict) -> Pipeline:
-        if "schema" in data and "schema_" not in data:
-            data = {**data, "schema_": data["schema"]}
-            del data["schema"]
         return cls.model_validate(data)

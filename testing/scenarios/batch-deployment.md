@@ -2,17 +2,17 @@
 
 ## Goal
 
-Test the full batch deployment lifecycle: a pipeline YAML with a `deploy:` block is
+Test the full batch deployment lifecycle: a pipeline YAML with a `deployment:` block is
 validated, deployed to GCP via `ddt deploy`, scheduled in Cloud Composer (Airflow),
 executed automatically, and the results land in the GCS warehouse. Then verify that
 re-deploying is idempotent and `ddt undeploy` cleans up without touching data.
 
-**This scenario tests new feature code.** The `deploy:` block, `ddt deploy`, and
+**This scenario tests new feature code.** The `deployment:` block, `ddt deploy`, and
 `ddt undeploy` commands do not exist yet — the first run will surface implementation
 findings that drive development of the `batch-deployment` feature.
 
 **The core questions this scenario answers:**
-1. Does `ddt validate` accept and check a `deploy:` block in the pipeline YAML?
+1. Does `ddt validate` accept and check a `deployment:` block in the pipeline YAML?
 2. Does `ddt deploy` provision a Cloud Composer DAG and Cloud Run job from the pipeline YAML?
 3. Does the deployed DAG execute the pipeline on schedule and write to GCS?
 4. Is re-deploying idempotent — no duplicate DAGs?
@@ -27,20 +27,20 @@ deployment infrastructure.
 
 ## Test Phases
 
-### Phase 1 — Pipeline YAML with `deploy:` block
+### Phase 1 — Pipeline YAML with `deployment:` block
 
-1. Add a `deploy:` block to `pipelines/github_repos.yml` in the test clone:
+1. Add a `deployment:` block to `pipelines/github_repos.yml` in the test clone:
    ```yaml
    deploy:
      schedule: "0 8 * * *"
    ```
-2. Run `ddt validate github_repos` — does it accept the `deploy:` block without error?
+2. Run `ddt validate github_repos` — does it accept the `deployment:` block without error?
 3. Verify the schedule is checked: set `schedule: "not a cron"` and confirm validate
    rejects it with a clear error message, then restore the valid schedule.
-4. Check that `ddt validate` on a pipeline without a `deploy:` block is unaffected
+4. Check that `ddt validate` on a pipeline without a `deployment:` block is unaffected
    (no regression).
 
-Phase 1 success: `ddt validate github_repos` passes with the `deploy:` block present
+Phase 1 success: `ddt validate github_repos` passes with the `deployment:` block present
 and rejects an invalid cron expression with an actionable error.
 
 ### Phase 2 — `ddt deploy` provisions GCP infrastructure via Terraform
@@ -128,7 +128,7 @@ touching warehouse data.
 - [ ] Phase 2: Cloud Composer DAG named `github_repos` is visible after deploy
 - [ ] Phase 2: Cloud Run job for the pipeline exists after deploy
 - [ ] Phase 2: `project.yml` records `deployments.github_repos` with schedule, dag_id, cloud_run_job
-- [ ] Phase 2: `ddt deploy` on a pipeline with no `deploy:` block exits with a clear error
+- [ ] Phase 2: `ddt deploy` on a pipeline with no `deployment:` block exits with a clear error
 - [ ] Phase 2: `ddt deploy` without `catalog: gcp` in `project.yml` exits with a clear error
 - [ ] Phase 2: Terraform state exists at `~/.ddt/terraform/pipelines/github_repos/terraform.tfstate`
 - [ ] Phase 2: `terraform show` lists `google_cloud_run_v2_job.pipeline` and `google_storage_bucket_object.dag`

@@ -101,45 +101,44 @@ source:
     - name: per_page
       type: integer
       value: 100
-
-schema:
-  columns:
-    - name: id
-      path: id
-      type: integer
-    - name: name
-      path: name
-      type: string
-    - name: full_name
-      path: full_name
-      type: string
-    - name: private
-      path: private
-      type: boolean
-    - name: description
-      path: description
-      type: string
-    - name: language
-      path: language
-      type: string
-    - name: stargazers_count
-      path: stargazers_count
-      type: integer
-    - name: forks_count
-      path: forks_count
-      type: integer
-    - name: created_at
-      path: created_at
-      type: timestamp
-    - name: updated_at
-      path: updated_at
-      type: timestamp
-    - name: default_branch
-      path: default_branch
-      type: string
-    - name: visibility
-      path: visibility
-      type: string
+  schema:
+    columns:
+      - name: id
+        path: id
+        type: integer
+      - name: name
+        path: name
+        type: string
+      - name: full_name
+        path: full_name
+        type: string
+      - name: private
+        path: private
+        type: boolean
+      - name: description
+        path: description
+        type: string
+      - name: language
+        path: language
+        type: string
+      - name: stargazers_count
+        path: stargazers_count
+        type: integer
+      - name: forks_count
+        path: forks_count
+        type: integer
+      - name: created_at
+        path: created_at
+        type: timestamp
+      - name: updated_at
+        path: updated_at
+        type: timestamp
+      - name: default_branch
+        path: default_branch
+        type: string
+      - name: visibility
+        path: visibility
+        type: string
 
 cadence:
   strategy: incremental

@@ -3,7 +3,7 @@
 ## Goal
 
 Test the full local streaming deployment lifecycle: a pipeline YAML with `source.type: pubsub`
-and `deploy.type: streaming` is deployed locally using Docker — an Apache Kafka broker (KRaft,
+and `deployment.type: streaming` is deployed locally using Docker — an Apache Kafka broker (KRaft,
 no Zookeeper) and a lightweight stream runner container — with no GCP account required. Messages
 are published via `ddt publish`, consumed from Kafka, projected through the pipeline schema, and
 written as windowed Parquet files to the local warehouse. Then verify idempotency and clean
@@ -41,7 +41,7 @@ schema:
     - {name: timestamp, path: timestamp, type: timestamp}
 cadence:
   strategy: append
-deploy:
+deployment:
   type: streaming
   window_seconds: 15
 ```

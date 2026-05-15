@@ -43,7 +43,7 @@ schema:
     - {name: updated_at, path: updated_at, type: timestamp}
 cadence:
   strategy: append
-deploy:
+deployment:
   type: batch
   schedule: "0 8 * * *"
 ```

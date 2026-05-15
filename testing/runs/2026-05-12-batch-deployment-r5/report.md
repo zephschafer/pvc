@@ -14,7 +14,7 @@ deployment functionality works correctly. Three new Minor/UX findings filed.
 - [x] Phase 1: `ddt validate github_repos` accepts a `deploy: { schedule: "0 8 * * *" }` block
   - Output: `OK — 'github_repos' (2 params, 0 cadence axes, 11 columns)`
 - [x] Phase 1: `ddt validate` rejects an invalid cron expression with a clear error message
-  - Error text: `deploy.schedule 'not a cron' is not a valid cron expression. Expected 5 space-separated fields...`
+  - Error text: `deployment.schedule 'not a cron' is not a valid cron expression. Expected 5 space-separated fields...`
 - [x] Phase 1: `ddt validate` on a pipeline without `deploy:` is unaffected (no regression)
   - `ddt validate craigslist_apts` → OK
 - [x] Phase 2: `ddt deploy github_repos` completes without error
@@ -25,8 +25,8 @@ deployment functionality works correctly. Three new Minor/UX findings filed.
   - `ddt-job-github-repos` in `us-central1` (Ready) confirmed
 - [x] Phase 2: `project.yml` records `deployments.github_repos` with schedule, dag_id, cloud_run_job
   - Full state written: schedule, dag_id, cloud_run_job, composer_env, image_uri, deployed_at
-- [x] Phase 2: `ddt deploy` on a pipeline with no `deploy:` block exits with a clear error
-  - `ddt deploy craigslist_apts` → "has no 'deploy:' block in its pipeline YAML"
+- [x] Phase 2: `ddt deploy` on a pipeline with no `deployment:` block exits with a clear error
+  - `ddt deploy craigslist_apts` → "has no 'deployment:' block in its pipeline YAML"
 - [ ] Phase 2: `ddt deploy` without `catalog: gcp` in `project.yml` exits with a clear error
   - **STALE CRITERION**: `ddt deploy` with `catalog: local` now routes to local Docker
     deployment instead of erroring. Behavior changed in commit `08faf16`. See F-047.
@@ -153,7 +153,7 @@ cadence:
   strategy: incremental
   primary_key: id
 
-deploy:
+deployment:
   schedule: "0 8 * * *"
 ```
 

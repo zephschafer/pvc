@@ -4,7 +4,7 @@ Date: 2026-05-14 | Tester: Claude Sonnet 4.6 | Scenario: batch-deployment-local
 ## Outcome: SUCCESS
 
 ## Success Criteria
-- [x] `ddt deploy <name>` succeeds for a `catalog: local` project with a batch `deploy:` block
+- [x] `ddt deploy <name>` succeeds for a `catalog: local` project with a batch `deployment:` block
 - [x] Docker image is built for the pipeline
 - [x] Airflow stack starts (webserver reachable at http://localhost:8090)
 - [x] DAG file is written to `~/.ddt/airflow/dags/<name>.py`

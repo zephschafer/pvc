@@ -20,8 +20,10 @@ from ddt.config.models import Pipeline, PythonSource, Schema, Column, Cadence
 def _make_pipeline(name: str = "test") -> Pipeline:
     return Pipeline(
         name=name,
-        source=PythonSource(type="python", module="m", function="f"),
-        schema_=Schema(columns=[Column(name="id", path="id", type="string")]),
+        source=PythonSource(
+            type="python", module="m", function="f",
+            schema_=Schema(columns=[Column(name="id", path="id", type="string")]),
+        ),
         cadence=Cadence(strategy="incremental", primary_key="id"),
     )
 
@@ -69,8 +71,10 @@ class TestFetchErrorReporting:
         from ddt.config.models import CategoricalIterate
         pipeline = Pipeline(
             name="multi",
-            source=PythonSource(type="python", module="m", function="f"),
-            schema_=Schema(columns=[Column(name="id", path="id", type="string")]),
+            source=PythonSource(
+                type="python", module="m", function="f",
+                schema_=Schema(columns=[Column(name="id", path="id", type="string")]),
+            ),
             cadence=Cadence(
                 strategy="append",
                 iterate=[CategoricalIterate(type="categorical", param="x", values=["a", "b", "c"])],

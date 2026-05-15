@@ -1,21 +1,19 @@
 version: 1
 name: github_repos
 description: GitHub public repositories for the apache organization
-
 source:
   type: http
   url: https://api.github.com/orgs/apache/repos
   method: GET
   params:
-    - name: per_page
-      type: integer
-      value: 100
-    - name: type
-      type: string
-      value: public
-
-schema:
-  columns:
+  - name: per_page
+    type: integer
+    value: 100
+  - name: type
+    type: string
+    value: public
+  schema:
+    columns:
     - name: id
       path: id
       type: integer
@@ -49,7 +47,6 @@ schema:
     - name: owner_login
       path: owner.login
       type: string
-
 cadence:
   strategy: incremental
   primary_key: id

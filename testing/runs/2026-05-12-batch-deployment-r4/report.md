@@ -15,7 +15,7 @@ All 17 success criteria passed. One new finding (F-035) was identified and fixed
 - [x] Phase 2: Cloud Composer DAG named `github_repos` is visible after deploy
 - [x] Phase 2: Cloud Run job for the pipeline exists after deploy
 - [x] Phase 2: `project.yml` records `deployments.github_repos` with schedule, dag_id, cloud_run_job
-- [x] Phase 2: `ddt deploy` on a pipeline with no `deploy:` block exits with a clear error
+- [x] Phase 2: `ddt deploy` on a pipeline with no `deployment:` block exits with a clear error
 - [x] Phase 2: `ddt deploy` without `catalog: gcp` in `project.yml` exits with a clear error
 - [x] Phase 2: Terraform state exists at `~/.ddt/terraform/pipelines/github_repos/terraform.tfstate`
 - [x] Phase 2: `terraform show` lists `google_cloud_run_v2_job.pipeline` and `google_storage_bucket_object.dag`

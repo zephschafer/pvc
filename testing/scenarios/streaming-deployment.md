@@ -102,7 +102,7 @@ gcloud pubsub topics publish ddt-test-clicks \
      window_seconds: 60
    ```
 2. Run `ddt validate click_events` — does it accept `source.type: pubsub` and
-   `deploy.type: streaming` without error?
+   `deployment.type: streaming` without error?
 3. Verify the schema is checked: remove a required field (e.g. `type:` from a column)
    and confirm validate rejects it, then restore.
 4. Run `ddt validate github_repos` (an existing batch pipeline) — confirm no regression.
@@ -141,7 +141,7 @@ clear error. Batch pipeline validation is unaffected.
    # Expected output contains:
    #   google_dataflow_flex_template_job.pipeline
    ```
-6. Confirm `ddt deploy` on a pipeline without `deploy:` block exits with a clear error.
+6. Confirm `ddt deploy` on a pipeline without `deployment:` block exits with a clear error.
 7. Confirm `ddt deploy` without `catalog: gcp` exits with a clear error.
 
 Phase 2 success: `ddt deploy click_events` completes, a Dataflow job is running,
@@ -217,13 +217,13 @@ touching warehouse data.
 
 ## Success Criteria
 
-- [ ] Phase 1: `ddt validate click_events` accepts `source.type: pubsub` and `deploy.type: streaming`
+- [ ] Phase 1: `ddt validate click_events` accepts `source.type: pubsub` and `deployment.type: streaming`
 - [ ] Phase 1: `ddt validate` rejects malformed YAML with a clear error message
 - [ ] Phase 1: `ddt validate` on an existing batch pipeline is unaffected (no regression)
 - [ ] Phase 2: `ddt deploy click_events` completes without error
 - [ ] Phase 2: Dataflow job state is `JOB_STATE_RUNNING` after deploy
 - [ ] Phase 2: `project.yml` records `deployments.click_events` with type, subscription, dataflow_job_id
-- [ ] Phase 2: `ddt deploy` on a pipeline with no `deploy:` block exits with a clear error
+- [ ] Phase 2: `ddt deploy` on a pipeline with no `deployment:` block exits with a clear error
 - [ ] Phase 2: `ddt deploy` without `catalog: gcp` exits with a clear error
 - [ ] Phase 2: Terraform state exists at `~/.ddt/terraform/pipelines/click_events/terraform.tfstate`
 - [ ] Phase 2: `terraform show` lists `google_dataflow_flex_template_job.pipeline`
@@ -276,7 +276,7 @@ missing CLI commands by writing custom Python.
 
 - **Blocking:** `source.type: pubsub` is not a valid source type — `models.py` only
   knows `http` and `python`. `ddt validate` will reject the pipeline YAML.
-- **Blocking:** `deploy.type` is not a field in the `Deploy` model — `models.py` only
+- **Blocking:** `deployment.type` is not a field in the `Deploy` model — `models.py` only
   has `schedule` and `paused`. Validate will reject `type: streaming`.
 - **Blocking:** `ddt deploy` has no streaming code path — it always provisions via the
   batch path (Cloud Build + Cloud Run + Terraform `batch_pipeline` module).

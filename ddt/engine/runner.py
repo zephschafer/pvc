@@ -59,7 +59,7 @@ def run_pipeline(
             print(f"    0 records — skipping")
             continue
 
-        df = project(records, pipeline.schema_)
+        df = project(records, pipeline.source.schema_)
         print(f"    {len(df)} rows → writing")
 
         iceberg_writer.write(spark, pipeline, df, catalog=catalog, dynamic_params=dynamic_params)

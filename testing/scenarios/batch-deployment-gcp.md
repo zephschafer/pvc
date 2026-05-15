@@ -50,7 +50,7 @@ required, six columns, append strategy — simplest existing pipeline).
    If any API is missing: `gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com`
 2. Confirm `project.yml` has `catalog: gcp` and `ddt gcp setup` has been completed:
    - `gcp.project_id`, `gcp.region`, `gcp.warehouse_bucket`, `gcp.sa_email` all set
-3. Write the `github_repos.yml` pipeline to `$CLONE/pipelines/` with a `deploy:` block:
+3. Write the `github_repos.yml` pipeline to `$CLONE/pipelines/` with a `deployment:` block:
    ```yaml
    version: 1
    name: github_repos

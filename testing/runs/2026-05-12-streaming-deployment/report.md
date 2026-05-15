@@ -8,13 +8,13 @@ were not reachable because the pipeline YAML cannot even be loaded by ddt's sche
 
 ## Success Criteria
 
-- [ ] Phase 1: `ddt validate click_events` accepts `source.type: pubsub` and `deploy.type: streaming`
+- [ ] Phase 1: `ddt validate click_events` accepts `source.type: pubsub` and `deployment.type: streaming`
 - [x] Phase 1: `ddt validate` rejects malformed YAML with a clear error message
 - [x] Phase 1: `ddt validate` on an existing batch pipeline is unaffected (no regression)
 - [ ] Phase 2: `ddt deploy click_events` completes without error
 - [ ] Phase 2: Dataflow job state is `JOB_STATE_RUNNING` after deploy
 - [ ] Phase 2: `project.yml` records `deployments.click_events` with type, subscription, dataflow_job_id
-- [x] Phase 2: `ddt deploy` on a pipeline with no `deploy:` block exits with a clear error
+- [x] Phase 2: `ddt deploy` on a pipeline with no `deployment:` block exits with a clear error
 - [x] Phase 2: `ddt deploy` without `catalog: gcp` exits with a clear error
 - [ ] Phase 2: Terraform state exists at `~/.ddt/terraform/pipelines/click_events/terraform.tfstate`
 - [ ] Phase 2: `terraform show` lists `google_dataflow_flex_template_job.pipeline`
@@ -32,7 +32,7 @@ Success criteria: 4/17 passed
 
 - `ddt validate craigslist_apts` (batch regression): ✓ — no regression in batch validation
 - `ddt validate click_events` malformed YAML: ✓ — rejects malformed column YAML with clear error
-- `ddt deploy craigslist_apts` (no deploy block): ✓ — clear error: `'craigslist_apts' has no 'deploy:' block`
+- `ddt deploy craigslist_apts` (no deploy block): ✓ — clear error: `'craigslist_apts' has no 'deployment:' block`
 - `ddt deploy` with `catalog: local`: ✓ — clear error: `catalog is not 'gcp'. Batch deployment requires a GCP data lake.`
 
 ## What Failed
@@ -40,7 +40,7 @@ Success criteria: 4/17 passed
 - `ddt validate click_events` — two validation errors:
   1. `source — Input tag 'pubsub' found using 'type' does not match any of the expected tags: 'http', 'python'`
   [→ Finding F-037: Blocking / Schema]
-  2. `deploy.schedule — Field required` (streaming deploy has no `schedule` cron field)
+  2. `deployment.schedule — Field required` (streaming deploy has no `schedule` cron field)
   [→ Finding F-038: Blocking / Schema]
 
 - `ddt deploy click_events` — fails at model load due to F-037 and F-038 before any deploy logic runs
@@ -83,7 +83,7 @@ The 6 findings together form the streaming-deployment implementation checklist:
    and `Deploy.window_seconds: int = 60`; make `schedule` optional (required only when
    `type == "batch"`); add validator: streaming pipelines must use `strategy: append`.
 
-2. **F-039 (cli.py / batch_deploy.py):** `ddt deploy` must check `pipeline.deploy.type`
+2. **F-039 (cli.py / batch_deploy.py):** `ddt deploy` must check `pipeline.deployment.type`
    and route to streaming deploy path when `type == "streaming"`.
 
 3. **F-040 (new Terraform module):** Create `ddt/infra/modules/gcp/streaming_pipeline/`

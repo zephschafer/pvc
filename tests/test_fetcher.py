@@ -4,8 +4,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from ddt.config.models import HttpSource, Response
+from ddt.config.models import HttpSource, Response, Schema
 from ddt.engine.fetcher import _parse_response
+
+_EMPTY_SCHEMA = Schema(columns=[])
 
 
 def _make_response(body) -> MagicMock:
@@ -20,6 +22,7 @@ def _make_source(records_path: str | None) -> HttpSource:
         type="http",
         url="https://example.com",
         response=Response(format="json", records_path=records_path),
+        schema_=_EMPTY_SCHEMA,
     )
 
 

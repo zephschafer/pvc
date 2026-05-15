@@ -154,12 +154,12 @@ def validate(
             typer.echo(
                 f"OK — '{pipeline.name}' (streaming, "
                 f"subscription: {pipeline.source.subscription}, "
-                f"{len(pipeline.schema_.columns)} columns)"
+                f"{len(pipeline.source.schema_.columns)} columns)"
             )
         else:
             typer.echo(f"OK — '{pipeline.name}' ({len(pipeline.source.params)} params, "
                        f"{len(pipeline.cadence.iterate)} cadence axes, "
-                       f"{len(pipeline.schema_.columns)} columns)")
+                       f"{len(pipeline.source.schema_.columns)} columns)")
 
 
 # ------------------------------------------------------------------ #
@@ -372,7 +372,7 @@ def deploy(
 
 
 def _deploy_all() -> None:
-    """Deploy every pipeline YAML that has a deploy: block."""
+    """Deploy every pipeline YAML that has a deployment: block."""
     pipelines_dir = _pipelines_dir()
     from .config import load_pipeline
 
@@ -380,13 +380,13 @@ def _deploy_all() -> None:
     for path in sorted(pipelines_dir.glob("*.yml")):
         try:
             pipeline = load_pipeline(path, resolve_env=False)
-            if pipeline.deploy is not None:
+            if pipeline.deployment is not None:
                 candidates.append(path.stem)
         except Exception:
             pass
 
     if not candidates:
-        typer.echo("No pipelines with a 'deploy:' block found in pipelines/.")
+        typer.echo("No pipelines with a 'deployment:' block found in pipelines/.")
         raise typer.Exit(0)
 
     typer.echo(f"Deploying {len(candidates)} pipeline(s): {', '.join(candidates)}")
@@ -421,14 +421,14 @@ def _deploy_one(pipeline_name: str) -> None:
         typer.echo(f"Error loading pipeline: {e}", err=True)
         raise typer.Exit(1)
 
-    if pipeline.deploy is None:
+    if pipeline.deployment is None:
         typer.echo(
-            f"Error: '{pipeline_name}' has no 'deploy:' block in its pipeline YAML.\n"
+            f"Error: '{pipeline_name}' has no 'deployment:' block in its pipeline YAML.\n"
             "For a batch pipeline, add a deploy block with a schedule:\n\n"
-            "  deploy:\n"
+            "  deployment:\n"
             "    schedule: \"0 8 * * *\"\n\n"
             "For a streaming pipeline (source.type: pubsub), add:\n\n"
-            "  deploy:\n"
+            "  deployment:\n"
             "    type: streaming\n"
             "    window_seconds: 60\n",
             err=True,
@@ -436,7 +436,7 @@ def _deploy_one(pipeline_name: str) -> None:
         raise typer.Exit(1)
 
     catalog = _get_catalog()
-    deploy_type = pipeline.deploy.type
+    deploy_type = pipeline.deployment.type
 
     try:
         if catalog == "local":
@@ -456,7 +456,7 @@ def _deploy_one(pipeline_name: str) -> None:
             cfg = _load_config()
             state = local_deploy.deploy(
                 pipeline_name=pipeline_name,
-                deployment=pipeline.deploy,
+                deployment=pipeline.deployment,
                 project_root=_project_root(),
                 subscription=subscription,
             )
@@ -489,17 +489,17 @@ def _deploy_one(pipeline_name: str) -> None:
             state = streaming_deploy.deploy(
                 pipeline_name=pipeline_name,
                 subscription=pipeline.source.subscription,
-                window_seconds=pipeline.deploy.window_seconds,
+                window_seconds=pipeline.deployment.window_seconds,
                 project_root=_project_root(),
                 gcp_config=gcp,
             )
         else:
             from .gcp import batch_deploy
-            typer.echo(f"Deploying '{pipeline_name}' (schedule: {pipeline.deploy.schedule})...")
+            typer.echo(f"Deploying '{pipeline_name}' (schedule: {pipeline.deployment.schedule})...")
             state = batch_deploy.deploy(
                 pipeline_name=pipeline_name,
-                schedule=pipeline.deploy.schedule,
-                paused=pipeline.deploy.paused,
+                schedule=pipeline.deployment.schedule,
+                paused=pipeline.deployment.paused,
                 project_root=_project_root(),
                 gcp_config=gcp,
             )

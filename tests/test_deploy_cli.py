@@ -20,12 +20,12 @@ def _make_project(tmp_path: Path, catalog: str = "local", gcp: dict | None = Non
 
 
 def _make_pipeline(project: Path, name: str, with_deploy: bool = True) -> None:
-    deploy_block = 'deploy:\n  schedule: "0 8 * * *"\n' if with_deploy else ""
+    deploy_block = 'deployment:\n  schedule: "0 8 * * *"\n' if with_deploy else ""
     (project / "pipelines" / f"{name}.yml").write_text(
         f"version: 1\n"
         f"name: {name}\n"
         f"source:\n  type: http\n  url: https://example.com\n"
-        f"schema:\n  columns:\n    - name: id\n      path: id\n      type: integer\n"
+        f"  schema:\n    columns:\n      - name: id\n        path: id\n        type: integer\n"
         f"cadence:\n  strategy: incremental\n  primary_key: id\n"
         f"{deploy_block}"
     )
@@ -45,7 +45,7 @@ def test_deploy_no_deploy_block(tmp_path, monkeypatch):
     monkeypatch.setenv("DDT_PROJECT_DIR", str(tmp_path))
     result = runner.invoke(app, ["deploy", "my_pipeline"])
     assert result.exit_code == 1
-    assert "no 'deploy:' block" in result.output
+    assert "no 'deployment:' block" in result.output
 
 
 def test_deploy_local_catalog_routes_to_local_deploy(tmp_path, monkeypatch):
