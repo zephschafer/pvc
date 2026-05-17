@@ -38,12 +38,8 @@ uv run dcf run <collector_name> --limit 1
 # Full run
 uv run dcf run <collector_name>
 
-# Verify output with DuckDB
-python -c "
-import duckdb
-conn = duckdb.connect()
-conn.execute(\"SELECT * FROM read_parquet('warehouse/<namespace>/<table>/data/*.parquet') LIMIT 5\").fetchdf()
-"
+# Verify output
+uv run dcf query 'SELECT * FROM <namespace>.<table> LIMIT 5'
 
 # Test MCP tools
 uv run dcf mcp serve   # then connect via Claude Desktop
