@@ -44,19 +44,73 @@ def _get_catalog() -> str:
 # init                                                                 #
 # ------------------------------------------------------------------ #
 
+_PYPROJECT_TEMPLATE = """\
+[project]
+name = "{name}"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "dcf-core",
+]
+
+[tool.uv]
+package = false
+"""
+
+_GITIGNORE_CONTENT = """\
+warehouse/
+project.yml
+.venv/
+__pycache__/
+"""
+
+_PROJECT_YML_CONTENT = "catalog: local\n"
+
+
 @app.command()
 def init(
     catalog: str = typer.Option("local", prompt="Catalog type (local or gcp)", show_default=True),
 ):
-    """Create or update project.yml configuration."""
-    cfg = _load_config()
-    cfg["catalog"] = catalog
-    _save_config(cfg)
-    typer.echo(f"Config saved to {_project_root() / 'project.yml'}")
-    typer.echo("\nTo store API keys, add them to project.yml as plain keys:")
-    typer.echo("  my_api_key: sk-xxxx")
-    typer.echo("Then reference them in collector YAML: value: \"{{ env.MY_API_KEY }}\"")
-    typer.echo("Or set them as environment variables before running.")
+    """Scaffold a new dcf project or update project.yml configuration."""
+    from .project import find_project_root
+
+    try:
+        root = find_project_root()
+    except RuntimeError:
+        root = Path.cwd()
+
+    created = []
+
+    pyproject = root / "pyproject.toml"
+    if not pyproject.exists():
+        pyproject.write_text(_PYPROJECT_TEMPLATE.format(name=root.name))
+        created.append("pyproject.toml")
+
+    project_yml = root / "project.yml"
+    if not project_yml.exists():
+        project_yml.write_text(_PROJECT_YML_CONTENT)
+        created.append("project.yml")
+    else:
+        cfg = yaml.safe_load(project_yml.read_text()) or {}
+        cfg["catalog"] = catalog
+        project_yml.write_text(yaml.dump(cfg, default_flow_style=False, sort_keys=False))
+
+    gitignore = root / ".gitignore"
+    if not gitignore.exists():
+        gitignore.write_text(_GITIGNORE_CONTENT)
+        created.append(".gitignore")
+
+    collectors_dir = root / "collectors"
+    if not collectors_dir.exists():
+        collectors_dir.mkdir()
+        created.append("collectors/")
+
+    if created:
+        typer.echo(f"Created: {', '.join(created)}")
+    typer.echo(f"catalog: {catalog}")
+    typer.echo("\nNext steps:")
+    typer.echo("  uv sync")
+    typer.echo("  uv run dcf validate all")
 
 
 # ------------------------------------------------------------------ #

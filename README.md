@@ -13,49 +13,15 @@ This guide walks you from zero to a working data collector. The example ingests 
 
 ### 1. Create a project
 
-dcf is a tool you depend on, not a repo you clone. Create a fresh directory:
+dcf is a tool you depend on, not a repo you clone. Create a fresh directory and run `init`:
 
 ```bash
 mkdir dcf-demo && cd dcf-demo
-```
-
-**`pyproject.toml`:**
-
-```toml
-[project]
-name = "dcf-demo"
-version = "0.1.0"
-requires-python = ">=3.12"
-dependencies = [
-    "dcf",
-]
-
-[tool.uv]
-package = false
-
-[tool.uv.sources]
-dcf = { git = "https://github.com/zephschafer/dcf.git" }    
-```
-
-**`project.yml`**
-
-```yaml
-catalog: local
-```
-
-**`.gitignore`:**
-
-```
-warehouse/
-project.yml
-.venv/
-__pycache__/
-```
-
-```bash
-mkdir collectors
+uvx --from dcf-core dcf init
 uv sync
 ```
+
+This creates `pyproject.toml`, `project.yml`, `.gitignore`, and a `collectors/` directory.
 
 ---
 
@@ -161,13 +127,13 @@ cat > pyproject.toml << 'EOF'
 name = "my-test-project"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["dcf"]
+dependencies = ["dcf-core"]
 
 [tool.uv]
 package = false
 
 [tool.uv.sources]
-dcf = { path = "../dcf", editable = true }
+dcf-core = { path = "../dcf", editable = true }
 EOF
 
 cat > project.yml << 'EOF'
