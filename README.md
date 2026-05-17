@@ -110,15 +110,6 @@ uv run dcf validate dcf_commits
 uv run dcf run dcf_commits
 ```
 
-```
-[dcf] Running 'dcf_commits' — 1 requests
-
-  [1/1]
-    30 rows → writing
-
-[dcf] 'dcf_commits' complete → /your/project/warehouse/github/dcf_commits/data
-```
-
 ---
 
 ### 5. Query the warehouse
