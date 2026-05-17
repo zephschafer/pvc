@@ -46,7 +46,6 @@ dcf = { git = "https://github.com/zephschafer/dcf.git" }
 **`project.yml`** (gitignore this file — it holds your credentials):
 
 ```yaml
-gh_pat: ghp_YOUR_TOKEN_HERE
 catalog: local
 ```
 
