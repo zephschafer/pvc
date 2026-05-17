@@ -21,48 +21,11 @@ uvx --from dcf-core dcf init
 uv sync
 ```
 
-This creates `pyproject.toml`, `project.yml`, `.gitignore`, and a `collectors/` directory.
+This creates `pyproject.toml`, `project.yml`, `.gitignore`, `collectors/`, and an example collector at `collectors/dcf_commits.yml`.
 
 ---
 
-### 2. Write a collector
-
-Create `collectors/dcf_commits.yml`:
-
-```yaml
-name: dcf_commits
-namespace: github
-description: Commits to the dcf repository.
-
-source:
-  type: http
-  url: https://api.github.com/repos/zephschafer/dcf/commits
-  method: GET
-  params:
-    - name: sha
-      type: string
-      value: main
-    - name: per_page
-      type: integer
-      value: 100
-  schema:
-    columns:
-      - {name: sha,          path: sha,                type: string}
-      - {name: author,       path: commit.author.name, type: string}
-      - {name: message,      path: commit.message,     type: string}
-      - {name: committed_at, path: commit.author.date, type: timestamp}
-
-cadence:
-  strategy: incremental
-  primary_key: sha
-
-deployment:
-  schedule: "0 8 * * *"
-```
-
----
-
-### 3. Validate
+### 2. Validate
 
 ```bash
 uv run dcf validate dcf_commits
@@ -70,7 +33,7 @@ uv run dcf validate dcf_commits
 
 ---
 
-### 4. Run
+### 3. Run
 
 ```bash
 uv run dcf run dcf_commits
@@ -78,7 +41,7 @@ uv run dcf run dcf_commits
 
 ---
 
-### 5. Query the warehouse
+### 4. Query the warehouse
 
 ```bash
 uv run dcf query 'SELECT * FROM github.dcf_commits'
@@ -92,7 +55,7 @@ uv run dcf query --file my_query.sql
 
 ---
 
-### 6. Deploy
+### 5. Deploy
 
 ```bash
 uv run dcf deploy dcf_commits

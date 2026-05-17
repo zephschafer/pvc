@@ -66,6 +66,37 @@ __pycache__/
 
 _PROJECT_YML_CONTENT = "catalog: local\n"
 
+_EXAMPLE_COLLECTOR = """\
+name: dcf_commits
+namespace: github
+description: Commits to the dcf repository.
+
+source:
+  type: http
+  url: https://api.github.com/repos/zephschafer/dcf/commits
+  method: GET
+  params:
+    - name: sha
+      type: string
+      value: main
+    - name: per_page
+      type: integer
+      value: 100
+  schema:
+    columns:
+      - {name: sha,          path: sha,                type: string}
+      - {name: author,       path: commit.author.name, type: string}
+      - {name: message,      path: commit.message,     type: string}
+      - {name: committed_at, path: commit.author.date, type: timestamp}
+
+cadence:
+  strategy: incremental
+  primary_key: sha
+
+deployment:
+  schedule: "0 8 * * *"
+"""
+
 
 @app.command()
 def init(
@@ -105,12 +136,17 @@ def init(
         collectors_dir.mkdir()
         created.append("collectors/")
 
+    example = collectors_dir / "dcf_commits.yml"
+    if not example.exists():
+        example.write_text(_EXAMPLE_COLLECTOR)
+        created.append("collectors/dcf_commits.yml")
+
     if created:
         typer.echo(f"Created: {', '.join(created)}")
     typer.echo(f"catalog: {catalog}")
     typer.echo("\nNext steps:")
     typer.echo("  uv sync")
-    typer.echo("  uv run dcf validate all")
+    typer.echo("  uv run dcf run dcf_commits")
 
 
 # ------------------------------------------------------------------ #
