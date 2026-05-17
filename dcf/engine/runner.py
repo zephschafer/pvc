@@ -3,11 +3,40 @@ from __future__ import annotations
 import textwrap
 import traceback
 
-from ..config.models import Collector, PythonSource
+from ..config.models import (
+    Collector, HttpSource, PythonSource, PubSubSource,
+    DateRangeIterate, CategoricalIterate,
+)
 from .iterator import build_request_sequence
 from .fetcher import fetch_records
 from .projector import project
 from .. import writer as iceberg_writer
+
+
+def _log_preamble(collector: Collector, n_requests: int) -> None:
+    print(f"\n[dcf] {collector.name}")
+    src = collector.source
+    if isinstance(src, HttpSource):
+        print(f"  source:  {src.url}")
+        static = [(p.name, p.value) for p in src.params if p.value is not None]
+        if static:
+            print(f"  params:  {', '.join(f'{k}={v}' for k, v in static)}")
+    elif isinstance(src, PythonSource):
+        print(f"  source:  {src.module}.{src.function}()")
+    elif isinstance(src, PubSubSource):
+        print(f"  source:  {src.subscription}")
+    iterate = collector.cadence.iterate
+    if not iterate:
+        print(f"  {n_requests} request, no iteration")
+    else:
+        parts = []
+        for spec in iterate:
+            if isinstance(spec, DateRangeIterate):
+                parts.append(f"date_range {spec.start} → {spec.end} in {spec.step} steps")
+            elif isinstance(spec, CategoricalIterate):
+                parts.append(f"categorical {spec.param} ({len(spec.values)} values)")
+        print(f"  iterate: {' × '.join(parts)} · {n_requests} requests")
+    print()
 
 
 def run_collector(
@@ -16,6 +45,14 @@ def run_collector(
     limit: int | None = None,
     param_overrides: dict | None = None,
 ) -> None:
+    param_defs = {p.name: p for p in collector.source.params}
+    request_sequence = build_request_sequence(collector.cadence.iterate, param_defs)
+
+    if limit is not None:
+        request_sequence = request_sequence[:limit]
+
+    _log_preamble(collector, len(request_sequence))
+
     # GCS write path bypasses Spark entirely — skip JVM startup
     if catalog == "gcp":
         spark = None
@@ -23,16 +60,8 @@ def run_collector(
         from dcf.spark_session import get_spark
         spark = get_spark("dcf")
 
-    param_defs = {p.name: p for p in collector.source.params}
-    request_sequence = build_request_sequence(collector.cadence.iterate, param_defs)
-
-    if limit is not None:
-        request_sequence = request_sequence[:limit]
-
     # Static params declared in the YAML (value is set) flow through to Python sources
     static_params = {p.name: p.value for p in collector.source.params if p.value is not None}
-
-    print(f"\n[dcf] Running '{collector.name}' — {len(request_sequence)} requests\n")
 
     failed = 0
 
