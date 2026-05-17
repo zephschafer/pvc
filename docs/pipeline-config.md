@@ -1,6 +1,6 @@
 # Pipeline Config Reference
 
-A pipeline config supports the construction of a data request pattern. From it, ddt assembles the actual API calls, executes them at the cadence you define, projects the results through a schema, and writes them to the warehouse.
+A pipeline config supports the construction of a data request pattern. From it, dcf assembles the actual API calls, executes them at the cadence you define, projects the results through a schema, and writes them to the warehouse.
 
 ### Example
 
@@ -105,7 +105,7 @@ A pipeline config has three primary sections:
 
 ## `source` — where data comes from
 
-The `source` block declares how ddt fetches raw records. Three types are supported.
+The `source` block declares how dcf fetches raw records. Three types are supported.
 
 ### `http`
 
@@ -200,7 +200,7 @@ Pub/Sub sources require `deployment.type: streaming` and `cadence.strategy: appe
 
 ### Environment variable resolution
 
-Any string value in the config can reference an environment variable using `{{ env.VAR_NAME }}`. ddt resolves these at load time:
+Any string value in the config can reference an environment variable using `{{ env.VAR_NAME }}`. dcf resolves these at load time:
 
 1. Checks `os.environ` for `VAR_NAME`
 2. Falls back to the matching key in `project.yml` (lowercased, e.g. `var_name`)
@@ -302,11 +302,11 @@ cadence:
 
 `incremental` requires `primary_key`. The other strategies do not.
 
-ddt automatically adds a `ddt_updated_at` column (ISO timestamp, Pacific time) to every write.
+dcf automatically adds a `dcf_updated_at` column (ISO timestamp, Pacific time) to every write.
 
 ### `iterate` — splitting one pipeline into many requests
 
-The `iterate` sub-key lists one or more axes. Multiple axes produce a Cartesian product — every combination is requested. Without `iterate`, ddt makes exactly one request.
+The `iterate` sub-key lists one or more axes. Multiple axes produce a Cartesian product — every combination is requested. Without `iterate`, dcf makes exactly one request.
 
 #### `date_range`
 
@@ -382,13 +382,13 @@ deployment:
 
 `streaming` requires `source.type: pubsub` and `cadence.strategy: append`.
 
-Omitting the `deployment` block makes the pipeline manual-only (run with `ddt run`).
+Omitting the `deployment` block makes the pipeline manual-only (run with `dcf run`).
 
 ---
 
 ## Execution lifecycle
 
-When you run a pipeline, ddt executes four phases in order.
+When you run a pipeline, dcf executes four phases in order.
 
 **1. Expand**
 
@@ -408,12 +408,12 @@ Applies the `source.schema` to the raw records:
 
 **4. Write**
 
-Persists the DataFrame using the `cadence` strategy, then appends `ddt_updated_at`.
+Persists the DataFrame using the `cadence` strategy, then appends `dcf_updated_at`.
 
 Terminal output during a run looks like:
 
 ```
-[ddt] Running 'github_commits' — 12 requests
+[dcf] Running 'github_commits' — 12 requests
 
   [1/12] since=2024-01-01 until=2024-01-07
     42 rows → writing
@@ -421,7 +421,7 @@ Terminal output during a run looks like:
     38 rows → writing
   ...
 
-[ddt] 'github_commits' complete → /your/project/warehouse/github/github_commits/data
+[dcf] 'github_commits' complete → /your/project/warehouse/github/github_commits/data
 ```
 
 ---

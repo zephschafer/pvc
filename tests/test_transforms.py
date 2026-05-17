@@ -1,8 +1,8 @@
-"""Tests for ddt.engine.transforms — including the new array_join transform."""
+"""Tests for dcf.engine.transforms — including the new array_join transform."""
 import pytest
 
-from ddt.config.models import ArrayJoinTransform
-from ddt.engine.transforms import apply_transform
+from dcf.config.models import ArrayJoinTransform
+from dcf.engine.transforms import apply_transform
 
 
 class TestArrayJoin:

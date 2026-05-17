@@ -1,6 +1,6 @@
 variable "image_tag" {
   type        = string
-  description = "Docker image tag for the Airflow image (e.g. ddt-airflow-local:latest)"
+  description = "Docker image tag for the Airflow image (e.g. dcf-airflow-local:latest)"
 }
 
 variable "build_context" {

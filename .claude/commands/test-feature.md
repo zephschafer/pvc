@@ -1,11 +1,11 @@
-You are running a ddt feature test for a specific scenario. Your job is to act as a disciplined QA engineer who executes scenario phases precisely, records every failure, friction point, and gap, and — for data pipeline scenarios — also acts as a first-time ddt user attempting to build a real pipeline.
+You are running a dcf feature test for a specific scenario. Your job is to act as a disciplined QA engineer who executes scenario phases precisely, records every failure, friction point, and gap, and — for data pipeline scenarios — also acts as a first-time dcf user attempting to build a real pipeline.
 
 ## What You Are Testing
 
-ddt is a YAML-driven data ingestion framework and Claude plugin (CLI + skills + MCP server). Scenarios fall into two types:
+dcf is a YAML-driven data ingestion framework and Claude plugin (CLI + skills + MCP server). Scenarios fall into two types:
 
-- **Pipeline scenarios** — test whether a user can build and run a working data pipeline against a real external API (e.g. `github-repos`, `stripe-payments`). The core question is whether ddt's YAML schema is expressive enough and the pipeline runs correctly end-to-end.
-- **Feature scenarios** — test whether a new ddt feature (CLI command, infrastructure provisioning, config schema) works as designed (e.g. `batch-deployment`, `streaming-deployment`). The core question is whether the implemented feature meets its acceptance criteria.
+- **Pipeline scenarios** — test whether a user can build and run a working data pipeline against a real external API (e.g. `github-repos`, `stripe-payments`). The core question is whether dcf's YAML schema is expressive enough and the pipeline runs correctly end-to-end.
+- **Feature scenarios** — test whether a new dcf feature (CLI command, infrastructure provisioning, config schema) works as designed (e.g. `batch-deployment`, `streaming-deployment`). The core question is whether the implemented feature meets its acceptance criteria.
 
 Determine the scenario type in Step 1. Steps 2 and 3 differ by type.
 
@@ -21,7 +21,7 @@ Before reading the scenario, create an isolated project directory for this run. 
 
 **a. Check for test_config.yml**
 
-Look for `testing/test_config.yml` in the ddt repository. If it does not exist, stop and tell the user:
+Look for `testing/test_config.yml` in the dcf repository. If it does not exist, stop and tell the user:
 
 > `testing/test_config.yml` is missing. Copy `testing/test_config.yml.example` to `testing/test_config.yml` and fill in the credentials needed for this scenario. The file is gitignored and will not be committed.
 
@@ -59,12 +59,12 @@ cp testing/test_config.yml \
 
 **e. Record the clone path**
 
-Set `CLONE` to the absolute path of the cloned quipu (e.g. `/Users/zephschafer/Documents/GitHub/ddt/testing/runs/2026-05-10-github-repos/quipu`). All subsequent ddt commands target this path via the `DDT_PROJECT_DIR` environment variable.
+Set `CLONE` to the absolute path of the cloned quipu (e.g. `/Users/zephschafer/Documents/GitHub/dcf/testing/runs/2026-05-10-github-repos/quipu`). All subsequent dcf commands target this path via the `DCF_PROJECT_DIR` environment variable.
 
 Shorthand for all CLI commands from this point forward:
 
 ```bash
-DDT_PROJECT_DIR=$CLONE uv --directory /Users/zephschafer/Documents/GitHub/ddt run ddt <command>
+DCF_PROJECT_DIR=$CLONE uv --directory /Users/zephschafer/Documents/GitHub/dcf run dcf <command>
 ```
 
 ---
@@ -80,10 +80,10 @@ Read the scenario file at `testing/scenarios/<scenario-name>.md`. This defines:
 
 **Determine the scenario type** from the "Target API" or "Target Component" section:
 - If it names an **external API** (GitHub, Stripe, Jira, etc.) → **Pipeline scenario** — follow Steps 2 and 3 as written for pipeline scenarios.
-- If it names a **ddt CLI command, module, or infrastructure component** → **Feature scenario** — skip Step 2 (API probing) and follow the feature scenario path in Step 3.
+- If it names a **dcf CLI command, module, or infrastructure component** → **Feature scenario** — skip Step 2 (API probing) and follow the feature scenario path in Step 3.
 
 Also read:
-- `README.md` — the full ddt YAML schema reference
+- `README.md` — the full dcf YAML schema reference
 - `testing/FINDINGS.md` — existing findings (so you don't re-report known issues)
 - Any prior runs for this scenario in `testing/runs/` (to build on prior work)
 - For pipeline scenarios: `.claude/commands/new-pipeline.md` — the skill you will simulate
@@ -99,7 +99,7 @@ Before writing any pipeline, investigate the target API as a real user would:
 - Fetch the API documentation (web search or provided URL)
 - Make real HTTP requests to representative endpoints to see actual response shapes
 - Record: response structure, pagination mechanism, auth mechanism, array/nested fields, date field formats, rate limits
-- Note anything that seems hard to express in ddt's current YAML schema
+- Note anything that seems hard to express in dcf's current YAML schema
 
 Do NOT skip this step for pipeline scenarios. Understanding the real API response is essential to accurate testing.
 
@@ -118,7 +118,7 @@ Before executing any phases, verify the prerequisites listed in the scenario:
 
 ### Pipeline scenarios — Attempt Pipeline Creation
 
-Proceed through the `new-pipeline` skill steps as if you are a first-time user who just installed ddt:
+Proceed through the `new-pipeline` skill steps as if you are a first-time user who just installed dcf:
 
 1. Choose source type: `http` or `python`
 2. Design the pipeline YAML (iterate axes, auth, params, schema, build strategy)
@@ -134,10 +134,10 @@ Proceed through the `new-pipeline` skill steps as if you are a first-time user w
 **Validate using the CLI:**
 
 ```bash
-DDT_PROJECT_DIR=$CLONE uv --directory /Users/zephschafer/Documents/GitHub/ddt run ddt validate <name>
+DCF_PROJECT_DIR=$CLONE uv --directory /Users/zephschafer/Documents/GitHub/dcf run dcf validate <name>
 ```
 
-**Critical constraint:** Do NOT work around YAML schema limitations by writing custom Python. If the schema cannot express what the API needs, record it as a finding and note the limitation. The test is whether ddt's YAML is expressive enough — not whether Python can compensate.
+**Critical constraint:** Do NOT work around YAML schema limitations by writing custom Python. If the schema cannot express what the API needs, record it as a finding and note the limitation. The test is whether dcf's YAML is expressive enough — not whether Python can compensate.
 
 ### Feature scenarios — Execute scenario phases
 
@@ -148,11 +148,11 @@ Work through each phase defined in the scenario file in order. For each phase:
 3. If a step fails, diagnose and distinguish:
    - **Missing implementation** (feature code not yet written) → record as Blocking finding, do not work around it, proceed to the next phase if possible
    - **User error or misconfiguration** → fix and retry
-   - **ddt bug in existing code** → record as finding, attempt workaround only if the scenario explicitly allows it
+   - **dcf bug in existing code** → record as finding, attempt workaround only if the scenario explicitly allows it
 4. Check the phase success condition — record whether it passed or failed
 5. Do not advance to the next phase if the current phase's success condition failed, unless the scenario explicitly says to continue
 
-**Critical constraint for feature scenarios:** Do NOT implement missing feature code to make a test pass. If `ddt deploy` doesn't exist yet, record that as a Blocking finding and stop that phase. The test is whether the implemented feature works — not whether you can implement it inline.
+**Critical constraint for feature scenarios:** Do NOT implement missing feature code to make a test pass. If `dcf deploy` doesn't exist yet, record that as a Blocking finding and stop that phase. The test is whether the implemented feature works — not whether you can implement it inline.
 
 ---
 
@@ -165,12 +165,12 @@ Run and iterate until either success or a blocking finding.
 **Run with limit:**
 
 ```bash
-DDT_PROJECT_DIR=$CLONE uv --directory /Users/zephschafer/Documents/GitHub/ddt run ddt run <name> --limit 1
+DCF_PROJECT_DIR=$CLONE uv --directory /Users/zephschafer/Documents/GitHub/dcf run dcf run <name> --limit 1
 ```
 
 If it fails: diagnose the error. Distinguish between:
 - **User error** (wrong path, wrong param name) → fix and retry
-- **ddt bug or schema gap** → record finding, attempt workaround if possible, continue
+- **dcf bug or schema gap** → record finding, attempt workaround if possible, continue
 
 **When `--limit 1` succeeds:**
 
@@ -178,14 +178,14 @@ If it fails: diagnose the error. Distinguish between:
 - Run full pipeline (or a reasonable subset via `--limit`):
 
 ```bash
-DDT_PROJECT_DIR=$CLONE uv --directory /Users/zephschafer/Documents/GitHub/ddt run ddt run <name>
+DCF_PROJECT_DIR=$CLONE uv --directory /Users/zephschafer/Documents/GitHub/dcf run dcf run <name>
 ```
 
 **Query the clone's warehouse** to verify row counts and spot-check data quality. The warehouse lives at `$CLONE/warehouse/`. Query it directly:
 
 ```bash
-DDT_PROJECT_DIR=$CLONE uv --directory /Users/zephschafer/Documents/GitHub/ddt run python -c \
-  "from ddt.warehouse_reader import query; import json; print(query('SELECT * FROM <namespace>.<table> LIMIT 10'))"
+DCF_PROJECT_DIR=$CLONE uv --directory /Users/zephschafer/Documents/GitHub/dcf run python -c \
+  "from dcf.warehouse_reader import query; import json; print(query('SELECT * FROM <namespace>.<table> LIMIT 10'))"
 ```
 
 Or read the Parquet files directly with DuckDB if simpler.
@@ -285,9 +285,9 @@ Wait for the user to review and tell you which findings to fix, mark by-design, 
 
 **Never classify a finding as Minor if it prevents the scenario's core goal from being achieved.** When in doubt, classify higher (more severe).
 
-**A finding is Blocking if:** the scenario cannot progress without a ddt code change or missing implementation.
+**A finding is Blocking if:** the scenario cannot progress without a dcf code change or missing implementation.
 
-**A finding is a Skill finding if:** a ddt skill (`new-pipeline`, `new-feature`, `tech-design`, `implement-design`) gave wrong or missing guidance that caused the wrong path to be taken.
+**A finding is a Skill finding if:** a dcf skill (`new-pipeline`, `new-feature`, `tech-design`, `implement-design`) gave wrong or missing guidance that caused the wrong path to be taken.
 
 **A finding is a UX finding if:** an error message was cryptic, a CLI flag was confusing, or reading source code was required to understand what was happening.
 
@@ -299,7 +299,7 @@ Wait for the user to review and tell you which findings to fix, mark by-design, 
 
 When the user tells you to fix a finding:
 
-1. Implement the fix in the relevant ddt source file
+1. Implement the fix in the relevant dcf source file
 2. Write a pytest unit test in `tests/` that would have caught this issue (if it's a Runtime finding)
 3. Re-run the relevant scenario phase to verify the fix
 4. Update `testing/FINDINGS.md`: move the finding to the Fixed table with the git commit hash

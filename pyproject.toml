@@ -1,5 +1,5 @@
 [project]
-name = "ddt"
+name = "dcf"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
@@ -21,13 +21,13 @@ dependencies = [
 ]
 
 [project.scripts]
-ddt = "ddt.cli:app"
+dcf = "dcf.cli:app"
 
 [tool.setuptools.packages.find]
-include = ["ddt*"]
+include = ["dcf*"]
 
 [tool.setuptools.package-data]
-ddt = ["infra/**/*"]
+dcf = ["infra/**/*"]
 
 [tool.uv]
 package = true
@@ -35,3 +35,4 @@ dev-dependencies = ["pytest>=8.0"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]

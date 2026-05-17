@@ -1,4 +1,4 @@
-You are helping the user produce a technical design document for a ddt feature. Your job is to ask enough targeted questions to produce a precise, decision-grade design — not to write from the first sentence. Architecture discussion comes before writing.
+You are helping the user produce a technical design document for a dcf feature. Your job is to ask enough targeted questions to produce a precise, decision-grade design — not to write from the first sentence. Architecture discussion comes before writing.
 
 ---
 
@@ -20,7 +20,7 @@ Based on what you've read and what the user has told you, identify what is still
 
 Do not ask questions already answered in the feature file or by the user. Adapt to what you know. The goal is to fill in these architectural unknowns:
 
-- **What is the runtime boundary?** Where does ddt's code end and an external service (GCP, Beam, Airflow, etc.) begin? What process owns each step?
+- **What is the runtime boundary?** Where does dcf's code end and an external service (GCP, Beam, Airflow, etc.) begin? What process owns each step?
 - **What is the local dev story?** How does a developer run this end-to-end on their laptop — same binary, a docker-compose, a simulator, or something else?
 - **What is the deployed topology?** Which managed services are used, and how do they connect? What triggers what?
 - **What are the seams?** Where are the interface boundaries — CLI flags, config schema fields, environment variables, inter-service protocols?
@@ -33,16 +33,16 @@ Keep questions focused on architecture, not product requirements. If a question 
 
 ## Step 3: Probe the codebase
 
-Before drafting, read the relevant source files to understand existing patterns and constraints. Key locations for ddt:
+Before drafting, read the relevant source files to understand existing patterns and constraints. Key locations for dcf:
 
-- `ddt/config/models.py` — YAML schema (Pipeline, Source, Auth, Build, Deploy, Column types)
-- `ddt/cli.py` — CLI commands and flags
-- `ddt/engine/runner.py` — pipeline execution loop
-- `ddt/engine/fetcher.py` — fetch logic
-- `ddt/writer/iceberg.py` — write strategies
-- `ddt/warehouse_reader.py` — query path (local and GCS)
-- `ddt/gcp/` — GCP provisioning modules
-- `ddt/mcp_server.py` — MCP tool surface
+- `dcf/config/models.py` — YAML schema (Pipeline, Source, Auth, Build, Deploy, Column types)
+- `dcf/cli.py` — CLI commands and flags
+- `dcf/engine/runner.py` — pipeline execution loop
+- `dcf/engine/fetcher.py` — fetch logic
+- `dcf/writer/iceberg.py` — write strategies
+- `dcf/warehouse_reader.py` — query path (local and GCS)
+- `dcf/gcp/` — GCP provisioning modules
+- `dcf/mcp_server.py` — MCP tool surface
 - `testing/scenarios/` — existing test scenarios
 
 Note which patterns the design would reuse, which would change, and which new modules or config fields are needed.
@@ -97,7 +97,7 @@ For each major component (process, service, or module), describe:
 | Property | Value |
 |----------|-------|
 | **Type** | process / service / module / config |
-| **Owner** | ddt code / GCP managed / user-provided |
+| **Owner** | dcf code / GCP managed / user-provided |
 | **Local behavior** | [what runs locally] |
 | **Deployed behavior** | [what runs in production] |
 | **Entrypoint** | [CLI command, file path, or service endpoint] |
@@ -112,7 +112,7 @@ For each major component (process, service, or module), describe:
 
 | Concern | Local | Deployed | Notes |
 |---------|-------|----------|-------|
-| Trigger | [e.g. `ddt run` CLI] | [e.g. Cloud Composer DAG] | |
+| Trigger | [e.g. `dcf run` CLI] | [e.g. Cloud Composer DAG] | |
 | Execution | [e.g. local Python process] | [e.g. Cloud Run job] | |
 | Storage | [e.g. local Iceberg path] | [e.g. GCS bucket] | |
 | Credentials | [e.g. ADC via gcloud] | [e.g. Workload Identity] | |
@@ -126,7 +126,7 @@ For each major component (process, service, or module), describe:
 ### CLI
 
 ```
-ddt <command> [flags]
+dcf <command> [flags]
 ```
 
 | Flag / Arg | Type | Required | Description |
@@ -135,7 +135,7 @@ ddt <command> [flags]
 
 ### Config Schema
 
-New or changed fields in `ddt/config/models.py`:
+New or changed fields in `dcf/config/models.py`:
 
 ```yaml
 # Example YAML showing new fields in context
@@ -188,7 +188,7 @@ Fill every section. If a section genuinely does not apply (e.g. no inter-service
 If `design/DESIGNS.md` does not exist, create it:
 
 ```markdown
-# ddt Design Registry
+# dcf Design Registry
 
 Last updated: YYYY-MM-DD | Total: 1 | Draft: 1 | Finalized: 0
 
@@ -236,7 +236,7 @@ Do not rewrite the Design Notes — just prepend the link so engineers can navig
 Tell the user:
 - The design file path (`design/<slug>.md`)
 - Any open questions that must be resolved before implementation
-- Any interface changes that will require updates to `ddt/config/models.py` or `ddt/cli.py`
+- Any interface changes that will require updates to `dcf/config/models.py` or `dcf/cli.py`
 - Whether any related test scenarios should be created
 
 Ask: is there anything to revise in the design? Iterate until they are satisfied.

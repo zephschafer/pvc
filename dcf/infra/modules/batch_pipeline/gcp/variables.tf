@@ -10,7 +10,7 @@ variable "region" {
 
 variable "pipeline_name" {
   type        = string
-  description = "ddt pipeline name (e.g. github_repos)"
+  description = "dcf pipeline name (e.g. github_repos)"
 }
 
 variable "image_uri" {

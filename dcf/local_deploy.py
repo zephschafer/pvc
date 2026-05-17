@@ -23,53 +23,53 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-_DDT_PKG_DIR = Path(__file__).parent
-_DDT_REPO_ROOT = _DDT_PKG_DIR.parent
+_DCF_PKG_DIR = Path(__file__).parent
+_DCF_REPO_ROOT = _DCF_PKG_DIR.parent
 
-_BATCH_PIPELINE_MODULE = _DDT_PKG_DIR / "infra" / "modules" / "batch_pipeline"
+_BATCH_PIPELINE_MODULE = _DCF_PKG_DIR / "infra" / "modules" / "batch_pipeline"
 
 
 def _write_pyproject_toml(dest: Path) -> None:
-    """Write ddt's pyproject.toml to dest/pyproject.toml.
+    """Write dcf's pyproject.toml to dest/pyproject.toml.
 
-    Works whether ddt is running from a development checkout or an installed
+    Works whether dcf is running from a development checkout or an installed
     package (where the repo root is not on disk and pyproject.toml lives only
     in package metadata).
     """
-    repo_pyproject = _DDT_REPO_ROOT / "pyproject.toml"
+    repo_pyproject = _DCF_REPO_ROOT / "pyproject.toml"
     if repo_pyproject.exists():
         shutil.copy2(repo_pyproject, dest / "pyproject.toml")
         return
 
     import importlib.metadata
 
-    meta = importlib.metadata.metadata("ddt")
+    meta = importlib.metadata.metadata("dcf")
     version = meta["Version"]
-    reqs = importlib.metadata.requires("ddt") or []
+    reqs = importlib.metadata.requires("dcf") or []
     direct_deps = [r for r in reqs if "extra ==" not in r]
     deps_str = "\n".join(f'    "{r}",' for r in direct_deps)
     (dest / "pyproject.toml").write_text(
         f'[project]\n'
-        f'name = "ddt"\n'
+        f'name = "dcf"\n'
         f'version = "{version}"\n'
         f'requires-python = ">=3.12"\n'
         f'dependencies = [\n{deps_str}\n]\n\n'
         f'[project.scripts]\n'
-        f'ddt = "ddt.cli:app"\n\n'
+        f'dcf = "dcf.cli:app"\n\n'
         f'[tool.setuptools.packages.find]\n'
-        f'include = ["ddt*"]\n'
+        f'include = ["dcf*"]\n'
     )
 
-_BUILD_DIR = Path.home() / ".ddt" / "build"
-_TF_PLUGIN_CACHE = Path.home() / ".ddt" / ".plugin-cache"
-_AIRFLOW_DAGS_DIR = Path.home() / ".ddt" / "airflow" / "dags"
-_AIRFLOW_COMPOSE_FILE = Path.home() / ".ddt" / "airflow" / "docker-compose.yml"
+_BUILD_DIR = Path.home() / ".dcf" / "build"
+_TF_PLUGIN_CACHE = Path.home() / ".dcf" / ".plugin-cache"
+_AIRFLOW_DAGS_DIR = Path.home() / ".dcf" / "airflow" / "dags"
+_AIRFLOW_COMPOSE_FILE = Path.home() / ".dcf" / "airflow" / "docker-compose.yml"
 
 
 def _tf_state_dir(project_root: Path) -> Path:
     """Return the Terraform state directory for this project.
 
-    Defaults to <project_root>/.ddt/terraform; can be overridden with
+    Defaults to <project_root>/.dcf/terraform; can be overridden with
     `terraform_state_dir` in project.yml.
     """
     cfg_path = project_root / "project.yml"
@@ -78,7 +78,7 @@ def _tf_state_dir(project_root: Path) -> Path:
         custom = cfg.get("terraform_state_dir")
         if custom:
             return Path(custom).expanduser()
-    return project_root / ".ddt" / "terraform"
+    return project_root / ".dcf" / "terraform"
 
 
 def _collect_env_vars(project_root: Path, pipeline_name: str) -> dict[str, str]:
@@ -150,7 +150,7 @@ def publish(pipeline_name: str, deployment_state: dict, message_json: str, count
     from kafka import KafkaProducer
 
     bootstrap = deployment_state.get("kafka_external_bootstrap", "localhost:29092")
-    topic = deployment_state.get("kafka_topic", f"ddt-{pipeline_name}")
+    topic = deployment_state.get("kafka_topic", f"dcf-{pipeline_name}")
 
     producer = KafkaProducer(
         bootstrap_servers=bootstrap,
@@ -167,7 +167,7 @@ def publish(pipeline_name: str, deployment_state: dict, message_json: str, count
 # ------------------------------------------------------------------ #
 
 def _deploy_batch(pipeline_name: str, deployment, project_root: Path) -> dict:
-    image_tag = f"ddt-local/{pipeline_name}:latest"
+    image_tag = f"dcf-local/{pipeline_name}:latest"
     warehouse_path = project_root / "warehouse"
     warehouse_path.mkdir(exist_ok=True)
 
@@ -228,12 +228,12 @@ def _undeploy_batch(pipeline_name: str, state: dict, project_root: Path) -> None
 # ------------------------------------------------------------------ #
 
 def _sync_build_context(project_root: Path, pipeline_name: str) -> Path:
-    """Create a stable build context dir at ~/.ddt/build/local/<name>/."""
+    """Create a stable build context dir at ~/.dcf/build/local/<name>/."""
     build_context = _BUILD_DIR / "local" / pipeline_name
     shutil.rmtree(build_context, ignore_errors=True)
     build_context.mkdir(parents=True)
 
-    shutil.copytree(_DDT_PKG_DIR, build_context / "ddt")
+    shutil.copytree(_DCF_PKG_DIR, build_context / "dcf")
     _write_pyproject_toml(build_context)
 
     for subdir in ("pipelines", "connectors"):
@@ -286,7 +286,7 @@ def _copy_module_to_work_dir(module_dir: Path, work_dir: Path) -> None:
             continue
         if item.is_file() and item.suffix == ".tf":
             shutil.copy2(item, work_dir / item.name)
-    templates_src = _DDT_PKG_DIR / "infra" / "templates"
+    templates_src = _DCF_PKG_DIR / "infra" / "templates"
     templates_dst = work_dir / "templates"
     if templates_dst.exists():
         shutil.rmtree(templates_dst)
@@ -364,7 +364,7 @@ def _local_dag_content(
     paused_str = "True" if paused else "False"
     environment = {"PIPELINE_NAME": pipeline_name, **(env_vars or {})}
     return f"""\
-# Generated by ddt — do not edit manually
+# Generated by dcf — do not edit manually
 from datetime import datetime
 from docker.types import Mount
 from airflow import DAG
@@ -376,7 +376,7 @@ with DAG(
     start_date=datetime(2024, 1, 1),
     catchup=False,
     is_paused_upon_creation={paused_str},
-    tags=["ddt"],
+    tags=["dcf"],
 ) as dag:
     run_pipeline = DockerOperator(
         task_id="run_{pipeline_name}",
@@ -407,7 +407,7 @@ def _airflow_build_context() -> Path:
 
 def _airflow_content_hash() -> str:
     """Hash of the airflow Dockerfile template to detect when Airflow image needs rebuild."""
-    template = _DDT_PKG_DIR / "infra" / "templates" / "airflow.Dockerfile.tftpl"
+    template = _DCF_PKG_DIR / "infra" / "templates" / "airflow.Dockerfile.tftpl"
     return hashlib.sha256(template.read_bytes()).hexdigest()
 
 
@@ -456,7 +456,7 @@ def _tf_apply_airflow_local(dag_dir: str, warehouse_path: str, credentials: dict
     content_hash = _airflow_content_hash()
 
     tfvars = {
-        "image_tag": "ddt-airflow-local:latest",
+        "image_tag": "dcf-airflow-local:latest",
         "build_context": str(build_context),
         "content_hash": content_hash,
         "dag_dir": dag_dir,
@@ -488,15 +488,15 @@ def _tf_apply_airflow_local(dag_dir: str, warehouse_path: str, credentials: dict
 # ------------------------------------------------------------------ #
 
 def _kafka_container(name: str) -> str:
-    return f"ddt-kafka-{name}"
+    return f"dcf-kafka-{name}"
 
 
 def _runner_container(name: str) -> str:
-    return f"ddt-runner-{name}"
+    return f"dcf-runner-{name}"
 
 
 def _network_name(name: str) -> str:
-    return f"ddt-{name}"
+    return f"dcf-{name}"
 
 
 def _deploy_streaming(
@@ -508,8 +508,8 @@ def _deploy_streaming(
     network = _network_name(pipeline_name)
     kafka_cname = _kafka_container(pipeline_name)
     runner_cname = _runner_container(pipeline_name)
-    image_tag = f"ddt-local/{pipeline_name}-stream:latest"
-    kafka_topic = f"ddt-{pipeline_name}"
+    image_tag = f"dcf-local/{pipeline_name}-stream:latest"
+    kafka_topic = f"dcf-{pipeline_name}"
     warehouse_path = project_root / "warehouse"
     warehouse_path.mkdir(exist_ok=True)
 
@@ -624,7 +624,7 @@ def _wait_for_kafka(bootstrap: str, timeout: int = 30) -> None:
             time.sleep(2)
     raise RuntimeError(
         f"Kafka did not become available at {bootstrap} within {timeout}s.\n"
-        "Check: docker logs ddt-kafka-<pipeline>"
+        "Check: docker logs dcf-kafka-<pipeline>"
     )
 
 
@@ -645,9 +645,9 @@ def _build_stream_image(project_root: Path, image_tag: str) -> None:
     import tempfile
     from textwrap import dedent
 
-    with tempfile.TemporaryDirectory(prefix="ddt-local-stream-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="dcf-local-stream-") as tmp:
         tmp_path = Path(tmp)
-        shutil.copytree(_DDT_PKG_DIR, tmp_path / "ddt")
+        shutil.copytree(_DCF_PKG_DIR, tmp_path / "dcf")
         _write_pyproject_toml(tmp_path)
 
         for subdir in ("pipelines", "connectors"):
@@ -663,12 +663,12 @@ def _build_stream_image(project_root: Path, image_tag: str) -> None:
             FROM python:3.12-slim
             WORKDIR /app
             COPY pyproject.toml .
-            COPY ddt/ ./ddt/
+            COPY dcf/ ./dcf/
             RUN pip install --no-cache-dir -e . 'kafka-python>=2.0'
             COPY pipelines/ ./pipelines/
             COPY connectors/ ./connectors/
             COPY project.yml .
-            ENTRYPOINT ["python", "-m", "ddt.local_stream_runner"]
+            ENTRYPOINT ["python", "-m", "dcf.local_stream_runner"]
         """))
 
         result = subprocess.run(["docker", "build", "-t", image_tag, "."], cwd=tmp)
@@ -711,7 +711,7 @@ def _undeploy_streaming(pipeline_name: str, state: dict) -> None:
     runner = state.get("runner_container", _runner_container(pipeline_name))
     kafka = state.get("kafka_container", _kafka_container(pipeline_name))
     network = state.get("docker_network", _network_name(pipeline_name))
-    image_tag = state.get("image_tag", f"ddt-local/{pipeline_name}-stream:latest")
+    image_tag = state.get("image_tag", f"dcf-local/{pipeline_name}-stream:latest")
 
     print(f"  Stopping stream runner '{runner}'...", flush=True)
     _stop_remove(runner)

@@ -41,7 +41,7 @@ resource "null_resource" "build" {
 }
 
 resource "google_sql_database_instance" "airflow_db" {
-  name             = "ddt-airflow-db"
+  name             = "dcf-airflow-db"
   database_version = "POSTGRES_15"
   region           = var.region
 
@@ -87,7 +87,7 @@ locals {
 resource "google_cloud_run_v2_service" "airflow" {
   depends_on = [null_resource.build, google_sql_database_instance.airflow_db]
 
-  name     = "ddt-airflow"
+  name     = "dcf-airflow"
   location = var.region
 
   template {

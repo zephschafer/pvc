@@ -6,7 +6,7 @@ Some APIs require credentials — a bearer token, API key, or similar. This docu
 
 ## Storing credentials
 
-ddt resolves `{{ env.VAR }}` placeholders in pipeline YAML from two places, in order:
+dcf resolves `{{ env.VAR }}` placeholders in pipeline YAML from two places, in order:
 
 1. OS environment variable (`export GITHUB_TOKEN=...`)
 2. `project.yml` key (lowercased, e.g. `github_token: ...`)
@@ -96,7 +96,7 @@ A few things to notice:
 
 - **`auth.key: token`** — bearer auth doesn't use the key field, but the schema requires it. Use any placeholder.
 - **`{{ env.GITHUB_TOKEN }}`** — resolved from `project.yml` or your shell environment at run time.
-- **`type: boolean`** — ddt casts GitHub's JSON `true`/`false` to a native Python bool.
+- **`type: boolean`** — dcf casts GitHub's JSON `true`/`false` to a native Python bool.
 - **`type: timestamp`** — parses ISO 8601 strings with timezone info into native timestamps.
 
 ### What this produces
@@ -164,10 +164,10 @@ id       name      language   ...  (12 columns)
 67890    my-api    Go
 ```
 
-**cadence** — runs once per `ddt run`, upserts on `id`
+**cadence** — runs once per `dcf run`, upserts on `id`
 
 ```
-ddt run github_repos
+dcf run github_repos
   → warehouse/github/github_repos/data/
 ```
 

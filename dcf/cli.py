@@ -9,7 +9,7 @@ _ANSI_RE = re.compile(r'\x1b\[[0-9;]*[mGKHJF]')
 import typer
 import yaml
 
-app = typer.Typer(help="ddt", no_args_is_help=True)
+app = typer.Typer(help="dcf", no_args_is_help=True)
 gcp_app = typer.Typer(help="GCP lake provisioning", no_args_is_help=True)
 mcp_app = typer.Typer(help="MCP server for AI-driven pipeline development", no_args_is_help=True)
 app.add_typer(gcp_app, name="gcp")
@@ -317,7 +317,7 @@ def gcp_status():
     gcp = cfg.get("gcp")
 
     if not gcp:
-        typer.echo("No GCP configuration found. Run: ddt gcp setup --project-id X --region Y")
+        typer.echo("No GCP configuration found. Run: dcf gcp setup --project-id X --region Y")
         return
 
     typer.echo(f"Status:           {gcp.get('setup_status', 'unknown')}")
@@ -339,20 +339,20 @@ def _require_gcp_config() -> tuple[dict, dict]:
     if cfg.get("catalog") != "gcp":
         typer.echo(
             "Error: catalog is not 'gcp'. Deployment requires a GCP data lake.\n"
-            "  Set catalog: gcp in project.yml or run: ddt init",
+            "  Set catalog: gcp in project.yml or run: dcf init",
             err=True,
         )
         raise typer.Exit(1)
     gcp = cfg.get("gcp", {})
     if gcp.get("setup_status") != "complete":
         typer.echo(
-            "Error: GCP setup is not complete. Run: ddt gcp setup --project-id X --region Y",
+            "Error: GCP setup is not complete. Run: dcf gcp setup --project-id X --region Y",
             err=True,
         )
         raise typer.Exit(1)
     for key in ("project_id", "region", "warehouse_bucket", "sa_email"):
         if not gcp.get(key):
-            typer.echo(f"Error: gcp.{key} is missing from project.yml. Re-run: ddt gcp setup", err=True)
+            typer.echo(f"Error: gcp.{key} is missing from project.yml. Re-run: dcf gcp setup", err=True)
             raise typer.Exit(1)
     return cfg, gcp
 
@@ -470,7 +470,7 @@ def _deploy_one(pipeline_name: str) -> None:
                 typer.echo(f"  Runner:       {state['runner_container']}")
                 typer.echo(f"  Warehouse:    {state['warehouse_path']}")
                 typer.echo(f"  Window:       {state['window_seconds']}s")
-                typer.echo(f"  To publish:   ddt publish {pipeline_name} '{{\"field\": \"value\"}}'")
+                typer.echo(f"  To publish:   dcf publish {pipeline_name} '{{\"field\": \"value\"}}'")
             else:
                 typer.echo(f"  Type:         batch (local Terraform)")
                 typer.echo(f"  Image:        {state['image_tag']}")
@@ -692,14 +692,14 @@ def publish(
     state = cfg.get("deployments", {}).get(pipeline_name)
     if not state:
         typer.echo(
-            f"Error: '{pipeline_name}' is not deployed. Run: ddt deploy {pipeline_name}",
+            f"Error: '{pipeline_name}' is not deployed. Run: dcf deploy {pipeline_name}",
             err=True,
         )
         raise typer.Exit(1)
 
     if state.get("type") != "streaming":
         typer.echo(
-            f"Error: '{pipeline_name}' is a batch deployment. ddt publish only works for streaming.",
+            f"Error: '{pipeline_name}' is a batch deployment. dcf publish only works for streaming.",
             err=True,
         )
         raise typer.Exit(1)
@@ -732,14 +732,14 @@ def publish(
 
 @mcp_app.command("serve")
 def mcp_serve():
-    """Start the ddt MCP server (stdio transport for Claude Desktop)."""
+    """Start the dcf MCP server (stdio transport for Claude Desktop)."""
     from .mcp_server import serve
     serve()
 
 
 @mcp_app.command("setup-desktop")
 def mcp_setup_desktop():
-    """Register ddt as an MCP server in Claude Desktop's config."""
+    """Register dcf as an MCP server in Claude Desktop's config."""
     import json
     import shutil
 
@@ -754,12 +754,12 @@ def mcp_setup_desktop():
 
     cfg = json.loads(claude_config.read_text()) if claude_config.stat().st_size else {}
     cfg.setdefault("mcpServers", {})
-    cfg["mcpServers"]["ddt"] = {
+    cfg["mcpServers"]["dcf"] = {
         "command": uv_path,
-        "args": ["--directory", project_dir, "run", "ddt", "mcp", "serve"],
+        "args": ["--directory", project_dir, "run", "dcf", "mcp", "serve"],
     }
     claude_config.write_text(json.dumps(cfg, indent=2))
-    typer.echo(f"Registered ddt MCP server in {claude_config}")
+    typer.echo(f"Registered dcf MCP server in {claude_config}")
     typer.echo("Restart Claude Desktop to pick up the change.")
 
 

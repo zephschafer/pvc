@@ -1,6 +1,6 @@
 variable "pipeline_name" {
   type        = string
-  description = "ddt pipeline name (e.g. github_repos)"
+  description = "dcf pipeline name (e.g. github_repos)"
 }
 
 variable "build_context" {
@@ -10,7 +10,7 @@ variable "build_context" {
 
 variable "image_tag" {
   type        = string
-  description = "Docker image tag (e.g. ddt-local/github_repos:latest)"
+  description = "Docker image tag (e.g. dcf-local/github_repos:latest)"
 }
 
 variable "content_hash" {

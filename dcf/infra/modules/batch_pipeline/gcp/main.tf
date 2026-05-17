@@ -43,7 +43,7 @@ resource "null_resource" "build" {
 resource "google_cloud_run_v2_job" "pipeline" {
   depends_on = [null_resource.build]
 
-  name     = "ddt-job-${replace(var.pipeline_name, "_", "-")}"
+  name     = "dcf-job-${replace(var.pipeline_name, "_", "-")}"
   location = var.region
 
   template {

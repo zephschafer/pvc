@@ -1,4 +1,4 @@
-You are helping the user plan the implementation of a ddt technical design and produce test scenarios to validate it. Your job is to read the design thoroughly, ask enough questions to phase the work correctly, and produce two artifacts: a precise implementation plan and one or more test scenarios compatible with the `/test-feature` skill.
+You are helping the user plan the implementation of a dcf technical design and produce test scenarios to validate it. Your job is to read the design thoroughly, ask enough questions to phase the work correctly, and produce two artifacts: a precise implementation plan and one or more test scenarios compatible with the `/test-feature` skill.
 
 Do not write implementation code. Your outputs are the plan and the scenarios — not the code itself.
 
@@ -28,11 +28,11 @@ Read the following before doing anything else:
 
 Before drafting the plan, read the files the design names as targets. Verify they exist and understand their current structure. Key locations:
 
-- `ddt/config/models.py` — existing Pydantic schema; identify where new fields slot in
-- `ddt/cli.py` — existing CLI commands; identify where new commands attach
-- `ddt/engine/runner.py` — pipeline execution loop
-- `ddt/gcp/` — GCP provisioning; identify existing patterns to reuse or extend
-- `ddt/infra/modules/gcp/` — Terraform modules; identify existing module structure
+- `dcf/config/models.py` — existing Pydantic schema; identify where new fields slot in
+- `dcf/cli.py` — existing CLI commands; identify where new commands attach
+- `dcf/engine/runner.py` — pipeline execution loop
+- `dcf/gcp/` — GCP provisioning; identify existing patterns to reuse or extend
+- `dcf/infra/modules/gcp/` — Terraform modules; identify existing module structure
 - `tests/` — existing test patterns; understand what test infrastructure is available
 
 Note:
@@ -152,8 +152,8 @@ For each implementation phase (or group of closely related phases), write a test
 
 **Each scenario must include:**
 
-- **Goal:** The core question this scenario answers about the implementation. Not "does the code work" — be specific. E.g. "Does `ddt validate` accept and reject the `deploy:` block correctly before any GCP resources are created?"
-- **Target Component:** This scenario tests ddt's own code, not an external API. Name the specific CLI commands, modules, or infrastructure components under test.
+- **Goal:** The core question this scenario answers about the implementation. Not "does the code work" — be specific. E.g. "Does `dcf validate` accept and reject the `deploy:` block correctly before any GCP resources are created?"
+- **Target Component:** This scenario tests dcf's own code, not an external API. Name the specific CLI commands, modules, or infrastructure components under test.
 - **Test Phases:** Ordered phases with numbered steps and phase success conditions. Phase 1 should always be testable with local resources only (no GCP, no external APIs) — validate the config schema, unit-test the new models, confirm error messages. Later phases can introduce GCP or external dependencies.
 - **Success Criteria:** Checkboxes that map directly to the feature's Acceptance Criteria (if a feature file exists). Every acceptance criterion should appear somewhere in a scenario's success criteria.
 - **Known Complexity:** Identify the hard parts before they surface. GCP provisioning time, IAM propagation delays, API enablement prerequisites — name them so the test agent doesn't mistake expected behavior for a bug.

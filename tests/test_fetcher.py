@@ -1,11 +1,11 @@
-"""Tests for ddt.engine.fetcher — focused on _parse_response behaviour."""
+"""Tests for dcf.engine.fetcher — focused on _parse_response behaviour."""
 import json
 from unittest.mock import MagicMock
 
 import pytest
 
-from ddt.config.models import HttpSource, Response, Schema
-from ddt.engine.fetcher import _parse_response
+from dcf.config.models import HttpSource, Response, Schema
+from dcf.engine.fetcher import _parse_response
 
 _EMPTY_SCHEMA = Schema(columns=[])
 
