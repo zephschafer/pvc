@@ -123,18 +123,14 @@ uv run dcf run dcf_commits
 
 ### 5. Query the warehouse
 
-Data is written as Parquet files and is immediately queryable with DuckDB:
+```bash
+uv run dcf query 'SELECT sha, author, message, committed_at FROM github.dcf_commits ORDER BY committed_at DESC'
+```
 
-```python
-import duckdb
+You can also save your SQL to a file and run it with `--file`:
 
-conn = duckdb.connect()
-df = conn.execute("""
-    SELECT sha, author, message, committed_at
-    FROM read_parquet('warehouse/github/dcf_commits/data/*.parquet')
-    ORDER BY committed_at DESC
-""").fetchdf()
-print(df)
+```bash
+uv run dcf query --file my_query.sql
 ```
 
 ---
