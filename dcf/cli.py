@@ -67,35 +67,40 @@ __pycache__/
 _PROJECT_YML_CONTENT = "catalog: local\n"
 
 _EXAMPLE_COLLECTOR = """\
-name: dcf_commits
-namespace: github
-description: Commits to the dcf repository.
+name: so_questions
+namespace: stackoverflow
+description: Stack Overflow questions tagged python and data-engineering.
 
 source:
   type: http
-  url: https://api.github.com/repos/zephschafer/dcf/commits
+  url: https://api.stackexchange.com/2.3/questions
   method: GET
+  response:
+    records_path: items
   params:
-    - name: per_page
-      type: integer
-      value: 100
-    - name: since
-      type: string
-    - name: until
-      type: string
+    - {name: site,     type: string,  value: stackoverflow}
+    - {name: tagged,   type: string,  value: "python;data-engineering"}
+    - {name: order,    type: string,  value: asc}
+    - {name: sort,     type: string,  value: creation}
+    - {name: pagesize, type: integer, value: 100}
+    - {name: fromdate, type: string,  format: "%s"}
+    - {name: todate,   type: string,  format: "%s"}
   schema:
     columns:
-      - {name: sha,          path: sha,                type: string}
-      - {name: author,       path: commit.author.name, type: string}
-      - {name: message,      path: commit.message,     type: string}
-      - {name: committed_at, path: commit.author.date, type: timestamp}
+      - {name: question_id,   path: question_id,   type: integer}
+      - {name: title,         path: title,         type: string}
+      - {name: score,         path: score,         type: integer}
+      - {name: answer_count,  path: answer_count,  type: integer}
+      - {name: view_count,    path: view_count,    type: integer}
+      - {name: creation_date, path: creation_date, type: integer}
+      - {name: link,          path: link,          type: string}
 
 cadence:
   strategy: incremental
-  primary_key: sha
+  primary_key: question_id
   iterate:
     - type: date_range
-      params: [since, until]
+      params: [fromdate, todate]
       start: "2024-01-01"
       end: today
       step: 30 days
@@ -107,7 +112,7 @@ deployment:
 
 @app.command()
 def init(
-    catalog: str = typer.Option("local", prompt="Catalog type (local or gcp)", show_default=True),
+    catalog: str = typer.Option("local"),
 ):
     """Scaffold a new dcf project or update project.yml configuration."""
     from .project import find_project_root
@@ -143,17 +148,16 @@ def init(
         collectors_dir.mkdir()
         created.append("collectors/")
 
-    example = collectors_dir / "dcf_commits.yml"
+    example = collectors_dir / "so_questions.yml"
     if not example.exists():
         example.write_text(_EXAMPLE_COLLECTOR)
-        created.append("collectors/dcf_commits.yml")
+        created.append("collectors/so_questions.yml")
 
     if created:
         typer.echo(f"Created: {', '.join(created)}")
-    typer.echo(f"catalog: {catalog}")
     typer.echo("\nNext steps:")
     typer.echo("  uv sync")
-    typer.echo("  uv run dcf run dcf_commits")
+    typer.echo("  uv run dcf run so_questions")
 
 
 # ------------------------------------------------------------------ #

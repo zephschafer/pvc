@@ -27,8 +27,8 @@ uvx --from dcf-core dcf init
 mkdir dcf-demo && cd dcf-demo
 uvx --from dcf-core dcf init
 uv sync
-uv run dcf run dcf_commits
-uv run dcf query 'SELECT * FROM github.dcf_commits'
+uv run dcf run so_questions
+uv run dcf query 'SELECT * FROM stackoverflow.so_questions'
 ```
 
 `dcf init` creates `pyproject.toml`, `project.yml`, `.gitignore`, `collectors/`, and an example collector.
@@ -40,34 +40,39 @@ uv run dcf query 'SELECT * FROM github.dcf_commits'
 ### dcf collector
 
 ```yaml
-name: dcf_commits
-namespace: github
+name: so_questions
+namespace: stackoverflow
 
 source:
   type: http
-  url: https://api.github.com/repos/zephschafer/dcf/commits
+  url: https://api.stackexchange.com/2.3/questions
   method: GET
+  response:
+    records_path: items
   params:
-    - name: per_page
-      type: integer
-      value: 100
-    - name: since
-      type: string
-    - name: until
-      type: string
+    - {name: site,     type: string,  value: stackoverflow}
+    - {name: tagged,   type: string,  value: "python;data-engineering"}
+    - {name: order,    type: string,  value: asc}
+    - {name: sort,     type: string,  value: creation}
+    - {name: pagesize, type: integer, value: 100}
+    - {name: fromdate, type: string,  format: "%s"}
+    - {name: todate,   type: string,  format: "%s"}
   schema:
     columns:
-      - {name: sha,          path: sha,                type: string}
-      - {name: author,       path: commit.author.name, type: string}
-      - {name: message,      path: commit.message,     type: string}
-      - {name: committed_at, path: commit.author.date, type: timestamp}
+      - {name: question_id,   path: question_id,   type: integer}
+      - {name: title,         path: title,         type: string}
+      - {name: score,         path: score,         type: integer}
+      - {name: answer_count,  path: answer_count,  type: integer}
+      - {name: view_count,    path: view_count,    type: integer}
+      - {name: creation_date, path: creation_date, type: integer}
+      - {name: link,          path: link,          type: string}
 
 cadence:
   strategy: incremental
-  primary_key: sha
+  primary_key: question_id
   iterate:
     - type: date_range
-      params: [since, until]
+      params: [fromdate, todate]
       start: "2024-01-01"
       end: today
       step: 30 days
@@ -78,12 +83,12 @@ deployment:
 
 ### dcf run
 ```bash
-uv run dcf run dcf_commits
+uv run dcf run so_questions
 ```
 
 ### dcf query
 ```bash
-uv run dcf query 'SELECT * FROM github.dcf_commits LIMIT 5'
+uv run dcf query 'SELECT * FROM stackoverflow.so_questions LIMIT 5'
 ```
 
 ---
@@ -104,8 +109,8 @@ dcf-core = { path = "../dcf", editable = true }
 To verify changes:
 
 ```bash
-uv run dcf run dcf_commits
-uv run dcf query 'SELECT * FROM github.dcf_commits'
+uv run dcf run so_questions
+uv run dcf query 'SELECT * FROM stackoverflow.so_questions'
 ```
 
 **Releasing:** bump `version` in `pyproject.toml` and push to main — GitHub Actions publishes to PyPI automatically.

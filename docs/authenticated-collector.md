@@ -22,81 +22,60 @@ github_token: ghp_xxxxxxxxxxxx
 
 ---
 
-## Example: GitHub private repositories
+## Example: GitHub commits with a PAT
 
-This pipeline ingests your private GitHub repositories using a personal access token.
+The quickstart example (`so_questions`) uses the Stack Exchange API with no auth. GitHub's API works fine too, but unauthenticated requests are limited to 60/hour. Adding a PAT raises that to 5,000/hour.
 
-**`pipelines/github_repos.yml`:**
+This pipeline ingests commits to `zephschafer/dcf` — the same collector shown in the README, but authenticated.
+
+**`collectors/dcf_commits.yml`:**
 
 ```yaml
-name: github_repos
+name: dcf_commits
 namespace: github
-description: My private GitHub repositories
+description: Commits to zephschafer/dcf
 
 source:
   type: http
-  url: https://api.github.com/user/repos
+  url: https://api.github.com/repos/zephschafer/dcf/commits
   method: GET
   auth:
     type: bearer
-    key: token       # required by the schema; not used in the request itself
+    key: token       # bearer auth ignores this field; any placeholder works
     value: "{{ env.GITHUB_TOKEN }}"
   params:
-    - name: visibility
-      type: string
-      value: private
     - name: per_page
       type: integer
       value: 100
+    - name: since
+      type: string
+    - name: until
+      type: string
   schema:
     columns:
-      - name: id
-        path: id
-        type: integer
-      - name: name
-        path: name
-        type: string
-      - name: full_name
-        path: full_name
-        type: string
-      - name: private
-        path: private
-        type: boolean
-      - name: description
-        path: description
-        type: string
-      - name: language
-        path: language
-        type: string
-      - name: stargazers_count
-        path: stargazers_count
-        type: integer
-      - name: forks_count
-        path: forks_count
-        type: integer
-      - name: created_at
-        path: created_at
-        type: timestamp
-      - name: updated_at
-        path: updated_at
-        type: timestamp
-      - name: default_branch
-        path: default_branch
-        type: string
-      - name: visibility
-        path: visibility
-        type: string
+      - {name: sha,          path: sha,                type: string}
+      - {name: author,       path: commit.author.name, type: string}
+      - {name: message,      path: commit.message,     type: string}
+      - {name: committed_at, path: commit.author.date, type: timestamp}
 
 cadence:
   strategy: incremental
-  primary_key: id
+  primary_key: sha
+  iterate:
+    - type: date_range
+      params: [since, until]
+      start: "2024-01-01"
+      end: today
+      step: 30 days
+
+deployment:
+  schedule: "0 8 * * *"
 ```
 
 A few things to notice:
 
 - **`auth.key: token`** — bearer auth doesn't use the key field, but the schema requires it. Use any placeholder.
 - **`{{ env.GITHUB_TOKEN }}`** — resolved from `project.yml` or your shell environment at run time.
-- **`type: boolean`** — dcf casts GitHub's JSON `true`/`false` to a native Python bool.
 - **`type: timestamp`** — parses ISO 8601 strings with timezone info into native timestamps.
 
 ### What this produces
@@ -110,39 +89,45 @@ A few things to notice:
 ```yaml
 source:
   type: http
-  url: https://api.github.com/user/repos
+  url: https://api.github.com/repos/zephschafer/dcf/commits
   auth:
     type: bearer
     value: "{{ env.GITHUB_TOKEN }}"
   params:
-    - name: visibility
-      value: private
     - name: per_page
       value: 100
+    - name: since
+      type: string
+    - name: until
+      type: string
   schema:
     columns:
-      - name: id
-        path: id
-        type: integer
-      - name: name
-        path: name
-        type: string
-      # 10 more columns ...
+      - {name: sha,          path: sha,                type: string}
+      - {name: author,       path: commit.author.name, type: string}
+      - {name: message,      path: commit.message,     type: string}
+      - {name: committed_at, path: commit.author.date, type: timestamp}
 
 cadence:
   strategy: incremental
-  primary_key: id
+  primary_key: sha
+  iterate:
+    - type: date_range
+      params: [since, until]
+      start: "2024-01-01"
+      end: today
+      step: 30 days
 ```
 
 </td>
 <td valign="top" width="54%">
 
-**assembled request** _(1 request per run)_
+**assembled request** _(one per 30-day window)_
 
 ```
-GET https://api.github.com/user/repos
-    ?visibility=private
-    &per_page=100
+GET https://api.github.com/repos/zephschafer/dcf/commits
+    ?per_page=100
+    &since=2024-01-01T00:00:00Z
+    &until=2024-01-30T00:00:00Z
 Authorization: Bearer ghp_xxxx...
 ```
 
@@ -150,25 +135,26 @@ Authorization: Bearer ghp_xxxx...
 
 ```json
 [
-  {"id": 12345, "name": "my-data", "language": "Python", ...},
-  {"id": 67890, "name": "my-api",  "language": "Go",     ...}
+  {"sha": "abc123", "commit": {"author": {"name": "Zeph", "date": "2024-01-05T..."},
+                                "message": "feat: add iterator"}, ...},
+  ...
 ]
 ```
 
-**projected → warehouse** (`incremental` on `id`)
+**projected → warehouse** (`incremental` on `sha`)
 
 ```
-id       name      language   ...  (12 columns)
-──────── ───────── ──────────
-12345    my-data   Python
-67890    my-api    Go
+sha      author   message              committed_at
+──────── ──────── ──────────────────── ────────────
+abc123   Zeph     feat: add iterator   2024-01-05
+...
 ```
 
-**cadence** — runs once per `dcf run`, upserts on `id`
+**cadence** — one request per 30-day window, upserts on `sha`
 
 ```
-dcf run github_repos
-  → warehouse/github/github_repos/data/
+dcf run dcf_commits
+  → warehouse/github/dcf_commits/data/
 ```
 
 </td>
@@ -184,5 +170,5 @@ If your token is missing or wrong:
 OSError: 'GITHUB_TOKEN' is not set — add it as an environment variable or set 'github_token' in project.yml
 
 # Wrong token:
-fetch error: 401 Client Error: Unauthorized for url: https://api.github.com/user/repos?...
+fetch error: 401 Client Error: Unauthorized for url: https://api.github.com/repos/zephschafer/dcf/commits?...
 ```
