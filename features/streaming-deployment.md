@@ -1,24 +1,24 @@
-# Feature: Streaming Pipeline Deployment
+# Feature: Streaming Collector Deployment
 
 **Status:** Draft
 **ID:** streaming-deployment
-**Feature Set:** pipeline-deployment
+**Feature Set:** collector-deployment
 **Created:** 2026-05-12
 **Updated:** 2026-05-12
 
 ## Summary
 
-dcf batch pipelines run on a schedule — fetch, transform, write. This feature adds a
-second deployment mode: streaming. A pipeline with `source.type: pubsub` and
+dcf batch collectors run on a schedule — fetch, transform, write. This feature adds a
+second deployment mode: streaming. A collector with `source.type: pubsub` and
 `deploy.type: streaming` runs as a continuous Apache Beam job on Google Cloud Dataflow,
-subscribing to a Pub/Sub topic, projecting each message through the pipeline's YAML
-schema, and writing windowed Parquet files to the same GCS warehouse as batch pipelines.
+subscribing to a Pub/Sub topic, projecting each message through the collector's YAML
+schema, and writing windowed Parquet files to the same GCS warehouse as batch collectors.
 From the user's perspective, the interface is identical to `dcf deploy` for batch —
-the deployment type is inferred from the pipeline YAML.
+the deployment type is inferred from the collector YAML.
 
 ## Problem
 
-Batch pipelines can only ingest historical or periodic data — they cannot respond to
+Batch collectors can only ingest historical or periodic data — they cannot respond to
 events as they happen. A product team that wants to capture clickstreams, webhook
 payloads, or real-time sensor readings today must stand up their own Kafka consumer
 or Pub/Sub subscriber, manage Dataflow job lifecycle, and wire results into the
@@ -27,29 +27,29 @@ warehouse independently of dcf. There is no dcf-native path for event-driven dat
 ## User Story
 
 As a developer with a GCP Pub/Sub topic receiving real-time events, I want to define
-a dcf pipeline that subscribes to it and writes to the warehouse, so that event data
+a dcf collector that subscribes to it and writes to the warehouse, so that event data
 is queryable without me managing Dataflow infrastructure or writing Beam code.
 
 ## Requirements
 
 ### Must Have
 
-- `source.type: pubsub` is a valid source type in the pipeline YAML, with a
+- `source.type: pubsub` is a valid source type in the collector YAML, with a
   `subscription` field (full resource path: `projects/<project>/subscriptions/<name>`)
 - `deploy.type: streaming` is a valid deploy type, alongside the existing batch
   (`schedule`-based) deploy
 - `deploy.window_seconds` controls the Beam fixed-time window (default: 60); messages
   within the window are batched into a single Parquet file write
-- `dcf deploy` provisions a Dataflow Flex Template job via the `streaming_pipeline`
+- `dcf deploy` provisions a Dataflow Flex Template job via the `streaming_collector`
   Terraform module when `deploy.type: streaming` is set
-- The Dataflow job reads from Pub/Sub, applies the pipeline's schema projection
+- The Dataflow job reads from Pub/Sub, applies the collector's schema projection
   to each message, and writes windowed Parquet files to
-  `gs://<warehouse-bucket>/<pipeline>/<pipeline>/data/`
-- `build.strategy: append` is required for streaming pipelines; `dcf validate`
-  rejects `strategy: incremental` on a streaming pipeline with a clear error
+  `gs://<warehouse-bucket>/<collector>/<collector>/data/`
+- `build.strategy: append` is required for streaming collectors; `dcf validate`
+  rejects `strategy: incremental` on a streaming collector with a clear error
 - `dcf undeploy` drains the Dataflow job (flush in-flight messages to GCS) before
   destroying Terraform resources — does not use cancel
-- Running `dcf deploy` on an already-deployed streaming pipeline is idempotent
+- Running `dcf deploy` on an already-deployed streaming collector is idempotent
 - Deployment state recorded in `project.yml` under `deployments:` with `type`,
   `subscription`, `dataflow_job_id`, `deployed_at`
 - Warehouse data is untouched by `dcf undeploy`
@@ -66,8 +66,8 @@ is queryable without me managing Dataflow infrastructure or writing Beam code.
 
 - [ ] `dcf validate click_events` accepts `source.type: pubsub` with a `subscription` field
 - [ ] `dcf validate click_events` accepts `deploy.type: streaming` with `window_seconds`
-- [ ] `dcf validate` rejects `build.strategy: incremental` on a streaming pipeline with
-      a clear error ("streaming pipelines require `build.strategy: append`")
+- [ ] `dcf validate` rejects `build.strategy: incremental` on a streaming collector with
+      a clear error ("streaming collectors require `build.strategy: append`")
 - [ ] `dcf deploy click_events` completes without error on a project with `catalog: gcp`
       and completed GCP setup
 - [ ] Dataflow job reaches `JOB_STATE_RUNNING` after deploy
@@ -79,7 +79,7 @@ is queryable without me managing Dataflow infrastructure or writing Beam code.
       removing infrastructure
 - [ ] GCS warehouse data survives `dcf undeploy` intact
 - [ ] `deployments.click_events` is removed from `project.yml` after undeploy
-- [ ] Terraform state at `~/.dcf/terraform/pipelines/click_events/` is removed after undeploy
+- [ ] Terraform state at `~/.dcf/terraform/collectors/click_events/` is removed after undeploy
 
 ## Out of Scope
 
@@ -87,8 +87,8 @@ is queryable without me managing Dataflow infrastructure or writing Beam code.
 - Kafka as a streaming source (only Pub/Sub for now)
 - Exactly-once delivery semantics (at-least-once is acceptable for v1)
 - Sliding or session windows (fixed-time windows only for v1)
-- Streaming → streaming joins or multi-source pipelines
-- Schema evolution (adding columns to an existing streaming pipeline)
+- Streaming → streaming joins or multi-source collectors
+- Schema evolution (adding columns to an existing streaming collector)
 - Dead-letter queues for malformed messages
 
 ## Related Scenarios
@@ -105,9 +105,9 @@ is queryable without me managing Dataflow infrastructure or writing Beam code.
 - Validator: if `source.type == "pubsub"`, then `deploy.type` must be `"streaming"`;
   if `deploy.type == "streaming"`, then `build.strategy` must be `"append"`
 
-**New Terraform module (`dcf/infra/modules/gcp/streaming_pipeline/`):**
+**New Terraform module (`dcf/infra/modules/gcp/streaming_collector/`):**
 - Resource: `google_dataflow_flex_template_job` (not `google_cloud_run_v2_job`)
-- Variables: `project_id`, `region`, `pipeline_name`, `template_gcs_path`,
+- Variables: `project_id`, `region`, `collector_name`, `template_gcs_path`,
   `subscription`, `warehouse_bucket`, `sa_email`, `window_seconds`
 - Output: `job_id` (used in `project.yml` deployments state)
 - The Flex Template spec JSON is uploaded to GCS as part of the deploy process
@@ -120,8 +120,8 @@ from apache_beam.io.gcp.pubsub import ReadFromPubSub
 from apache_beam.io.parquetio import WriteToParquet
 from apache_beam.transforms.window import FixedWindows
 
-def build_pipeline(pipeline_name, subscription, schema, warehouse_bucket, window_seconds):
-    with beam.Pipeline(options=...) as p:
+def build_collector(collector_name, subscription, schema, warehouse_bucket, window_seconds):
+    with beam.Collector(options=...) as p:
         (
             p
             | ReadFromPubSub(subscription=subscription)
@@ -129,16 +129,16 @@ def build_pipeline(pipeline_name, subscription, schema, warehouse_bucket, window
             | beam.Map(project_message, columns=schema.columns)
             | beam.WindowInto(FixedWindows(window_seconds))
             | WriteToParquet(
-                f"gs://{warehouse_bucket}/{pipeline_name}/{pipeline_name}/data/",
+                f"gs://{warehouse_bucket}/{collector_name}/{collector_name}/data/",
                 schema=to_pyarrow_schema(schema.columns),
             )
         )
 ```
 
 **Flex Template build process (in `batch_deploy.py` or new `streaming_deploy.py`):**
-1. Build container image via Cloud Build (same as batch — vendor dcf source + user pipelines)
+1. Build container image via Cloud Build (same as batch — vendor dcf source + user collectors)
 2. Generate Flex Template JSON spec pointing to the image
-3. Upload spec to `gs://<warehouse-bucket>/templates/<pipeline_name>.json`
+3. Upload spec to `gs://<warehouse-bucket>/templates/<collector_name>.json`
 4. Run `terraform apply` with `template_gcs_path` pointing to the spec
 
 **Drain on undeploy:**
@@ -150,7 +150,7 @@ for clean shutdown.
 **Note on idempotency:**
 Dataflow Flex Template jobs cannot be "updated" in place — they must be replaced.
 Second `dcf deploy` should check if a job with the same name is already running and
-either: (a) leave it as-is if the pipeline YAML is unchanged, or (b) drain-and-replace
+either: (a) leave it as-is if the collector YAML is unchanged, or (b) drain-and-replace
 if the YAML changed. For v1, option (a) is acceptable: if a running job exists with
 the same name, report "already deployed" and exit cleanly.
 

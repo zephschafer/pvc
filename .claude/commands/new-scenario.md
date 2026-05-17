@@ -23,7 +23,7 @@ Also read one existing scenario for format reference — `testing/scenarios/pyth
 Before writing, confirm what you still need to know. Adapt based on what context you already have from the feature file. Key questions to cover:
 
 - **What is the single core question this scenario answers?** (e.g. "Does incremental retry work when a fetch throws a transient error?")
-- **What is the target API or system component?** Existing pipeline (name it), a new API, or an internal dcf component (runner, writer, reader)?
+- **What is the target API or system component?** Existing collector (name it), a new API, or an internal dcf component (runner, writer, reader)?
 - **Should this be one scenario or several?** A scenario is best when it has a clear happy path and 1–3 error/edge cases. Multiple distinct behaviors should be separate scenario files.
 - **What credentials are required?** (Which keys from `testing/test_config.yml.example`)
 - **Are there any pre-identified failure modes** that the scenario should explicitly watch for?
@@ -41,7 +41,7 @@ Map the feature's acceptance criteria (or the user's stated goals) into ordered 
 
 Guidelines:
 - Phase 1 is usually setup or discovery (read docs, check prerequisites, probe the API)
-- Phase 2 is the core happy path (write pipeline, run with `--limit 1`, verify data)
+- Phase 2 is the core happy path (write collector, run with `--limit 1`, verify data)
 - Phase 3 is full run + deduplication + quality checks
 - Phase 4 is teardown or cleanup (only if needed — e.g. GCP resources)
 

@@ -3,13 +3,13 @@
 D.ata C.ollection F.ramework
 
 It works like this
-1. User defines pipelines with basic configs in a YAML (like a dbt model)
-2. dcf builds and runs the pipeline
+1. User defines collectors with basic configs in a YAML (like a dbt model)
+2. dcf builds and runs the collector
 3. Data lake has data
 
 ## Quickstart
 
-This guide walks you from zero to a working data pipeline. The example ingests your GitHub repositories.
+This guide walks you from zero to a working data collector. The example ingests your GitHub repositories.
 
 ### 1. Create a project
 
@@ -53,15 +53,15 @@ __pycache__/
 ```
 
 ```bash
-mkdir pipelines
+mkdir collectors
 uv sync
 ```
 
 ---
 
-### 2. Write a pipeline
+### 2. Write a collector
 
-Create `pipelines/dcf_commits.yml`:
+Create `collectors/dcf_commits.yml`:
 
 ```yaml
 name: dcf_commits
@@ -132,7 +132,7 @@ uv run dcf query --file my_query.sql
 uv run dcf deploy dcf_commits
 ```
 
-This schedules the pipeline to run daily at 8 AM UTC, as configured in `deployment.schedule`.
+This schedules the collector to run daily at 8 AM UTC, as configured in `deployment.schedule`.
 
 ---
 
@@ -174,9 +174,9 @@ cat > project.yml << 'EOF'
 catalog: local
 EOF
 
-mkdir pipelines
+mkdir collectors
 uv sync
-uv run dcf validate all   # "OK — 0 pipeline(s)"
+uv run dcf validate all   # "OK — 0 collector(s)"
 ```
 
 ---
@@ -191,7 +191,7 @@ dcf/
 ├── mcp_server.py       MCP server (FastMCP)
 ├── warehouse_reader.py DuckDB-based warehouse query layer
 ├── config/
-│   ├── models.py       Pydantic models for pipeline YAML
+│   ├── models.py       Pydantic models for collector YAML
 │   └── loader.py       YAML loading + env var resolution
 ├── engine/
 │   ├── runner.py       Outer loop (expand cadence → fetch → project → write)

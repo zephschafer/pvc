@@ -35,9 +35,9 @@ Keep questions focused on architecture, not product requirements. If a question 
 
 Before drafting, read the relevant source files to understand existing patterns and constraints. Key locations for dcf:
 
-- `dcf/config/models.py` — YAML schema (Pipeline, Source, Auth, Build, Deploy, Column types)
+- `dcf/config/models.py` — YAML schema (Collector, Source, Auth, Build, Deploy, Column types)
 - `dcf/cli.py` — CLI commands and flags
-- `dcf/engine/runner.py` — pipeline execution loop
+- `dcf/engine/runner.py` — collector execution loop
 - `dcf/engine/fetcher.py` — fetch logic
 - `dcf/writer/iceberg.py` — write strategies
 - `dcf/warehouse_reader.py` — query path (local and GCS)
@@ -116,7 +116,7 @@ For each major component (process, service, or module), describe:
 | Execution | [e.g. local Python process] | [e.g. Cloud Run job] | |
 | Storage | [e.g. local Iceberg path] | [e.g. GCS bucket] | |
 | Credentials | [e.g. ADC via gcloud] | [e.g. Workload Identity] | |
-| Config | [e.g. `pipeline.yml` local path] | [e.g. bundled in container] | |
+| Config | [e.g. `collector.yml` local path] | [e.g. bundled in container] | |
 | Observability | [e.g. stdout logs] | [e.g. Cloud Logging] | |
 
 ---
@@ -139,7 +139,7 @@ New or changed fields in `dcf/config/models.py`:
 
 ```yaml
 # Example YAML showing new fields in context
-pipeline:
+collector:
   <new-field>: <type>  # description
 ```
 

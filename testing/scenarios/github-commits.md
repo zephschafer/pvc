@@ -2,7 +2,7 @@
 
 ## Goal
 
-Build a pipeline that incrementally ingests commits from a high-volume GitHub
+Build a collector that incrementally ingests commits from a high-volume GitHub
 repository using dcf's `date_range` iterate axis. This scenario validates the
 incremental sync pattern end-to-end at real scale — the core of Fivetran's value
 proposition ("sync everything since last run, don't re-fetch what you have").
@@ -52,7 +52,7 @@ one page (≤100 commits) for the YAML path test.
 
 Validate the `date_range` iterate axis with a narrow window that fits on one page:
 
-1. Write `pipelines/github_commits.yml` using `date_range` iterate axis:
+1. Write `collectors/github_commits.yml` using `date_range` iterate axis:
    - `params: [since, until]` (two-param form)
    - `start: "2024-01-01"`, `end: "2024-01-31"`, `step: "7 days"`, `window: "7 days"`
    - Schema: sha, commit_message (from commit.message), author_name (commit.author.name),
@@ -61,7 +61,7 @@ Validate the `date_range` iterate axis with a narrow window that fits on one pag
 3. Run `dcf run github_commits --limit 1` — first iteration (Jan 1–7)
 4. Verify: sha is present, commit_message is a string, author_date parses as timestamp,
    github_login is nullable (some commits don't have a matching GitHub user)
-5. Run full pipeline (all 4 weekly windows in January 2024)
+5. Run full collector (all 4 weekly windows in January 2024)
 6. Verify row count is stable across two runs (incremental deduplication on `sha`)
 
 Phase 1 success: date_range iteration works, nested fields extracted, nullable handled.
@@ -70,8 +70,8 @@ Phase 1 success: date_range iteration works, nested fields extracted, nullable h
 
 Expand to a full year of commits to test performance and deduplication at scale:
 
-1. Update pipeline: `start: "2023-01-01"`, `end: "2024-01-01"`, `step: "7 days"`, `window: "7 days"`
-2. Run full pipeline — ~52 requests, likely 2000–5000 commits
+1. Update collector: `start: "2023-01-01"`, `end: "2024-01-01"`, `step: "7 days"`, `window: "7 days"`
+2. Run full collector — ~52 requests, likely 2000–5000 commits
 3. Record: total runtime, total rows, Spark startup overhead visible?
 4. Re-run immediately — row count must be identical (deduplication at scale)
 5. Query warehouse: top 10 committers by commit count, most active weeks
@@ -81,7 +81,7 @@ Phase 2 success: deduplication holds at scale, performance is acceptable for a
 
 ## Success Criteria
 
-- [ ] Pipeline YAML validates successfully
+- [ ] Collector YAML validates successfully
 - [ ] `--limit 1` fetches commits for one date window
 - [ ] `commit.message` extracted via dot-notation path (nested 2 levels)
 - [ ] `commit.author.date` parsed as timestamp (nested 3 levels)
@@ -107,7 +107,7 @@ Phase 2 success: deduplication holds at scale, performance is acceptable for a
 
 ## Known Expected Findings (Pre-identified)
 
-- **Expected Minor (UX):** `new-pipeline` skill has no guidance on choosing `step`
+- **Expected Minor (UX):** `new-collector` skill has no guidance on choosing `step`
   and `window` sizes for a date_range iterate axis. How does a user know to use
   `"7 days"` vs `"1 month"`? What happens if windows overlap?
 - **To investigate:** Performance at 50+ requests — does Spark startup dominate?

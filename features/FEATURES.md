@@ -18,7 +18,7 @@ Last updated: 2026-05-12 | Total: 2 | Active: 0 | Complete: 0 | Draft: 2
 
 | Feature Set | Features |
 |-------------|---------|
-| pipeline-deployment | batch-deployment, streaming-deployment |
+| collector-deployment | batch-deployment, streaming-deployment |
 
 ---
 
@@ -26,8 +26,8 @@ Last updated: 2026-05-12 | Total: 2 | Active: 0 | Complete: 0 | Draft: 2
 
 | ID | Name | Status | Summary | Scenarios |
 |----|------|--------|---------|-----------|
-| batch-deployment | Batch Pipeline Deployment | Draft | Deploy any dcf pipeline as a scheduled GCP batch job with one CLI command (Composer + Cloud Run) | batch-deployment |
-| streaming-deployment | Streaming Pipeline Deployment | Draft | Deploy a Pub/Sub-sourced pipeline as a continuous Beam/Dataflow job writing windowed Parquet to GCS | streaming-deployment |
+| batch-deployment | Batch Collector Deployment | Draft | Deploy any dcf collector as a scheduled GCP batch job with one CLI command (Composer + Cloud Run) | batch-deployment |
+| streaming-deployment | Streaming Collector Deployment | Draft | Deploy a Pub/Sub-sourced collector as a continuous Beam/Dataflow job writing windowed Parquet to GCS | streaming-deployment |
 
 ---
 

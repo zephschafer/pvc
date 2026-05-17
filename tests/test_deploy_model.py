@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from dcf.config.models import Deployment, Pipeline
+from dcf.config.models import Deployment, Collector
 
 
 # ------------------------------------------------------------------ #
@@ -47,11 +47,11 @@ def test_deployment_paused_can_be_set():
 
 
 # ------------------------------------------------------------------ #
-# Pipeline.deployment field                                            #
+# Collector.deployment field                                            #
 # ------------------------------------------------------------------ #
 
 _PIPELINE_BASE = {
-    "name": "test_pipeline",
+    "name": "test_collector",
     "source": {
         "type": "http",
         "url": "https://example.com/api",
@@ -63,21 +63,21 @@ _PIPELINE_BASE = {
 }
 
 
-def test_pipeline_deployment_optional():
-    p = Pipeline.from_dict(_PIPELINE_BASE)
+def test_collector_deployment_optional():
+    p = Collector.from_dict(_PIPELINE_BASE)
     assert p.deployment is None
 
 
-def test_pipeline_deployment_parsed():
+def test_collector_deployment_parsed():
     data = {**_PIPELINE_BASE, "deployment": {"schedule": "0 8 * * *"}}
-    p = Pipeline.from_dict(data)
+    p = Collector.from_dict(data)
     assert p.deployment is not None
     assert p.deployment.schedule == "0 8 * * *"
     assert p.deployment.paused is False
 
 
-def test_pipeline_deployment_invalid_cron_raises():
+def test_collector_deployment_invalid_cron_raises():
     data = {**_PIPELINE_BASE, "deployment": {"schedule": "not a cron"}}
     with pytest.raises(ValidationError) as exc_info:
-        Pipeline.from_dict(data)
+        Collector.from_dict(data)
     assert "valid cron expression" in str(exc_info.value)

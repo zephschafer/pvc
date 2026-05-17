@@ -23,8 +23,8 @@ TYPE_MAP: dict[str, pa.DataType] = {
 }
 
 
-def load_columns(pipeline_name: str) -> list[dict]:
-    path = Path("pipelines") / f"{pipeline_name}.yml"
+def load_columns(collector_name: str) -> list[dict]:
+    path = Path("collectors") / f"{collector_name}.yml"
     data = yaml.safe_load(path.read_text())
     return data["schema"]["columns"]
 

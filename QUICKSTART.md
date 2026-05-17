@@ -1,6 +1,6 @@
 # dcf Quickstart
 
-This guide walks you from zero to a working data pipeline. The example ingests commits to the dcf repository — no credentials needed, since the repo is public.
+This guide walks you from zero to a working data collector. The example ingests commits to the dcf repository — no credentials needed, since the repo is public.
 
 ---
 
@@ -52,15 +52,15 @@ __pycache__/
 ```
 
 ```bash
-mkdir pipelines
+mkdir collectors
 uv sync
 ```
 
 ---
 
-## 2. Write a pipeline
+## 2. Write a collector
 
-Create `pipelines/dcf_commits.yml`:
+Create `collectors/dcf_commits.yml`:
 
 ```yaml
 name: dcf_commits
@@ -105,7 +105,7 @@ A few things to notice:
 
 - **`namespace: github`** — groups the table under `warehouse/github/`. Without this, the table lands under `warehouse/dcf_commits/`.
 - **`commit.author.name`** — dot-notation paths extract values from nested objects in the JSON response.
-- **`cadence.strategy: incremental`** — upserts on `sha` each run, so re-running the same pipeline never creates duplicates.
+- **`cadence.strategy: incremental`** — upserts on `sha` each run, so re-running the same collector never creates duplicates.
 - **`type: timestamp`** — dcf parses ISO 8601 strings with timezone info into native timestamps.
 
 ### What this produces
@@ -209,7 +209,7 @@ uv run dcf run dcf_commits --limit 1
 [dcf] 'dcf_commits' complete → /your/project/warehouse/github/dcf_commits/data
 ```
 
-The `--limit 1` flag restricts to the first iteration (useful when your pipeline iterates over many date ranges or categories). For a single-request pipeline like this one, it behaves identically to a full run.
+The `--limit 1` flag restricts to the first iteration (useful when your collector iterates over many date ranges or categories). For a single-request collector like this one, it behaves identically to a full run.
 
 ---
 
@@ -243,7 +243,7 @@ SELECT sha, author, message FROM github.dcf_commits ORDER BY committed_at DESC
 uv run dcf run dcf_commits
 ```
 
-Re-run it a second time. For `incremental` pipelines, the row count must stay the same — dcf upserts on `primary_key`, so repeated runs are idempotent:
+Re-run it a second time. For `incremental` collectors, the row count must stay the same — dcf upserts on `primary_key`, so repeated runs are idempotent:
 
 ```python
 conn.execute("SELECT COUNT(*) FROM read_parquet('warehouse/github/dcf_commits/data/*.parquet')").fetchone()
@@ -258,8 +258,8 @@ conn.execute("SELECT COUNT(*) FROM read_parquet('warehouse/github/dcf_commits/da
 - **Project nested fields** — use dot-notation paths like `commit.author.name` to extract values from nested objects.
 - **Project array fields** — use the `array_join` transform to flatten list fields like `topics` into a comma-separated string.
 - **Add a Python connector** — for APIs that need pagination, multi-step auth, or response reshaping, write a `connectors/` function and use `type: python`.
-- **Pipelines that require credentials** — see [docs/authenticated-pipeline.md](docs/authenticated-pipeline.md) for how to configure bearer auth and store API keys safely.
+- **Collectors that require credentials** — see [docs/authenticated-collector.md](docs/authenticated-collector.md) for how to configure bearer auth and store API keys safely.
 - **Ship to the cloud** — run `dcf gcp setup` to provision a GCS-backed Iceberg lake and set `catalog: gcp` in `project.yml`.
-- **Use Claude to build pipelines** — run `dcf mcp setup-desktop` to register the MCP server with Claude Desktop. Claude can then write, validate, and run pipelines on your behalf using the `new-pipeline` skill.
+- **Use Claude to build collectors** — run `dcf mcp setup-desktop` to register the MCP server with Claude Desktop. Claude can then write, validate, and run collectors on your behalf using the `new-collector` skill.
 
 See [README.md](README.md) for the full YAML schema reference and CLI documentation.

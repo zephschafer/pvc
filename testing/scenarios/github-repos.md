@@ -2,8 +2,8 @@
 
 ## Goal
 
-Build a pipeline that ingests public repository metadata from a GitHub organization or user.
-This is the simplest possible real-world HTTP pipeline: no auth, no iteration, single endpoint,
+Build a collector that ingests public repository metadata from a GitHub organization or user.
+This is the simplest possible real-world HTTP collector: no auth, no iteration, single endpoint,
 flat-ish JSON response.
 
 **Target org/user for testing:** `apache` (large org, many repos, stable public data)
@@ -20,7 +20,7 @@ GitHub API docs: https://docs.github.com/en/rest/repos/repos#list-organization-r
 
 ## Success Criteria
 
-- [ ] Pipeline YAML validates successfully (`dcf validate github-repos`)
+- [ ] Collector YAML validates successfully (`dcf validate github-repos`)
 - [ ] `--limit 1` run fetches at least 1 real repository row
 - [ ] Schema projection captures: id, name, full_name, description, language, stargazers_count, forks_count, created_at, updated_at, html_url
 - [ ] Full run (first page, ~100 repos) writes correctly to warehouse

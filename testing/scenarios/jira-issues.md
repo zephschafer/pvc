@@ -2,7 +2,7 @@
 
 ## Goal
 
-Build a pipeline that ingests issues from multiple Jira projects, iterating over
+Build a collector that ingests issues from multiple Jira projects, iterating over
 projects categorically. Jira is Fivetran's most-requested enterprise connector.
 This scenario tests: per-project categorical iteration, highly nested response
 fields, and the cartesian product of date × project when combining iterate axes.
@@ -60,7 +60,7 @@ Auth: Basic auth — base64(`email:api_token`). API token is NOT an OAuth token.
 
 Start with a single project to validate basic Jira field extraction:
 
-1. Write `pipelines/jira_issues.yml` using `type: http`, `records_path: issues`,
+1. Write `collectors/jira_issues.yml` using `type: http`, `records_path: issues`,
    single `categorical` iterate axis for `project_key` with one value
 2. Add `date_range` iterate axis on `updated` date params (JQL date params)
 3. Schema: issue_id (from id), issue_key (key), summary (fields.summary),
@@ -72,16 +72,16 @@ Start with a single project to validate basic Jira field extraction:
 6. Verify: `fields.status.name` extracted correctly (3 levels deep via dot-notation)
 7. Verify: `fields.assignee.displayName` is nullable when unassigned
 
-Phase 1 success: single project YAML pipeline works with nested field extraction.
+Phase 1 success: single project YAML collector works with nested field extraction.
 
 ### Phase 2 — Multi-Project Categorical Iteration
 
 Expand to multiple projects using the `categorical` iterate axis:
 
-1. Update pipeline: `categorical` iterate axis over 2-3 project keys
+1. Update collector: `categorical` iterate axis over 2-3 project keys
 2. Combine with the `date_range` axis — verify cartesian product (N projects × M windows)
 3. Run `dcf run jira_issues --limit 1` — should run first project × first date window
-4. Run full pipeline
+4. Run full collector
 5. Verify row counts: run twice, confirm idempotent on `id` primary key
 6. Query warehouse: count issues per project, per status
 
@@ -92,14 +92,14 @@ Phase 2 success: categorical × date_range cartesian product works correctly.
 Jira uses offset pagination (`startAt`/`total`). Test dcf's behavior:
 
 1. Find a project + date range with >100 issues (`total > maxResults` in response)
-2. Run the pipeline — how many rows does dcf return? Is it capped at 100?
+2. Run the collector — how many rows does dcf return? Is it capped at 100?
 3. Document: offset pagination limitation (same root cause as Link header pagination)
 
 Phase 3 success: limitation documented with exact counts.
 
 ## Success Criteria
 
-- [ ] Phase 1: Pipeline validates successfully with Jira JQL date params
+- [ ] Phase 1: Collector validates successfully with Jira JQL date params
 - [ ] Phase 1: `--limit 1` fetches real Jira issues
 - [ ] Phase 1: `fields.status.name` extracted via dot-notation (3 levels)
 - [ ] Phase 1: `fields.assignee.displayName` nullable (null when unassigned)
@@ -170,7 +170,7 @@ Zeph provides credentials. Set in `project.yml` before the test.
 
 - The test project is `/Users/zephschafer/Documents/GitHub/quipu/`
 - Use `namespace: jira` — routes to `warehouse/jira/jira_issues/`
-- The `url` in the pipeline YAML must include the full domain:
+- The `url` in the collector YAML must include the full domain:
   `https://{{ env.JIRA_DOMAIN }}/rest/api/3/search`
 - For Phase 1, use a project that has at least 10 issues but is unlikely to exceed
   100 per date window (to defer the pagination finding to Phase 3)

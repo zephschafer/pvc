@@ -13,7 +13,7 @@ terraform {
 }
 
 resource "local_file" "dockerfile" {
-  content  = templatefile("${path.module}/templates/batch_pipeline.Dockerfile.tftpl", {
+  content  = templatefile("${path.module}/templates/batch_collector.Dockerfile.tftpl", {
     java_enabled = var.java_enabled
   })
   filename = "${var.build_context}/Dockerfile"

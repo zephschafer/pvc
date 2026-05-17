@@ -2,41 +2,41 @@
 
 ## Goal
 
-Test the new Terraform-based local batch deployment lifecycle: the `batch_pipeline_local/`
+Test the new Terraform-based local batch deployment lifecycle: the `batch_collector_local/`
 Terraform module passes validation, `dcf deploy github_repos` with `catalog: local` builds
-a pipeline Docker image declaratively via Terraform and writes a DAG file to
+a collector Docker image declaratively via Terraform and writes a DAG file to
 `~/.dcf/airflow/dags/`, and the local Airflow Docker Compose stack picks up the DAG and can
-execute the pipeline.
+execute the collector.
 
-**This scenario tests new implementation code.** The `batch_pipeline_local/` Terraform module,
+**This scenario tests new implementation code.** The `batch_collector_local/` Terraform module,
 the rewritten `local_deploy.py` Terraform path, and the `airflow_local/` Terraform module do
 not exist yet — the first run will surface implementation findings.
 
 **The core questions this scenario answers:**
-1. Does the `batch_pipeline_local/` Terraform module pass `terraform validate` and produce a
+1. Does the `batch_collector_local/` Terraform module pass `terraform validate` and produce a
    valid `terraform plan` without requiring GCP credentials?
-2. Does `dcf deploy github_repos` (local) build the pipeline image via Terraform and write
+2. Does `dcf deploy github_repos` (local) build the collector image via Terraform and write
    `~/.dcf/airflow/dags/github_repos.py`?
-3. Is the Docker image correctly built from the shared `batch_pipeline.Dockerfile.tftpl`
+3. Is the Docker image correctly built from the shared `batch_collector.Dockerfile.tftpl`
    template with `java_enabled=true` (includes JVM)?
 4. Does `dcf undeploy github_repos` run `terraform destroy` and remove the DAG file, without
    touching warehouse data?
 5. Does the local Airflow stack start via `airflow_local/` Terraform module, pick up the DAG,
-   and successfully trigger the pipeline container?
+   and successfully trigger the collector container?
 
 ## Target Component
 
 This scenario tests dcf's own Terraform modules and CLI provisioning layer:
-- `dcf/infra/modules/templates/batch_pipeline.Dockerfile.tftpl`
-- `dcf/infra/modules/batch_pipeline_local/` (main.tf, variables.tf, outputs.tf)
+- `dcf/infra/modules/templates/batch_collector.Dockerfile.tftpl`
+- `dcf/infra/modules/batch_collector_local/` (main.tf, variables.tf, outputs.tf)
 - `dcf/infra/modules/templates/airflow.Dockerfile.tftpl`
 - `dcf/infra/modules/templates/docker-compose.yml.tftpl`
 - `dcf/infra/modules/airflow_local/` (main.tf, variables.tf, outputs.tf)
 - `dcf/local_deploy.py` — rewritten deploy/undeploy to call Terraform instead of `docker build` directly
 - `dcf/cli.py` — `dcf deploy`, `dcf undeploy`
 
-The pipeline used as the test vehicle is `github_repos` (Apache org, public repos, no auth
-required, six columns, append strategy — simplest existing pipeline).
+The collector used as the test vehicle is `github_repos` (Apache org, public repos, no auth
+required, six columns, append strategy — simplest existing collector).
 
 ## Test Phases
 
@@ -47,25 +47,25 @@ required, six columns, append strategy — simplest existing pipeline).
 3. Confirm the module files exist:
    ```bash
    ls dcf/infra/modules/templates/
-   # Expected: batch_pipeline.Dockerfile.tftpl  airflow.Dockerfile.tftpl  docker-compose.yml.tftpl
-   ls dcf/infra/modules/batch_pipeline_local/
+   # Expected: batch_collector.Dockerfile.tftpl  airflow.Dockerfile.tftpl  docker-compose.yml.tftpl
+   ls dcf/infra/modules/batch_collector_local/
    # Expected: main.tf  variables.tf  outputs.tf
    ```
-4. Run `terraform validate` in `dcf/infra/modules/batch_pipeline_local/`:
+4. Run `terraform validate` in `dcf/infra/modules/batch_collector_local/`:
    ```bash
-   terraform -chdir=dcf/infra/modules/batch_pipeline_local init -backend=false
-   terraform -chdir=dcf/infra/modules/batch_pipeline_local validate
+   terraform -chdir=dcf/infra/modules/batch_collector_local init -backend=false
+   terraform -chdir=dcf/infra/modules/batch_collector_local validate
    ```
 5. Create a minimal `test.tfvars` and confirm `terraform plan` completes without GCP credentials:
    ```hcl
-   pipeline_name = "github_repos"
+   collector_name = "github_repos"
    build_context = "/tmp/test-build"
    image_tag     = "dcf-local/github_repos:latest"
    content_hash  = "abc123"
    java_enabled  = true
    ```
    ```bash
-   terraform -chdir=dcf/infra/modules/batch_pipeline_local plan -var-file=test.tfvars
+   terraform -chdir=dcf/infra/modules/batch_collector_local plan -var-file=test.tfvars
    ```
 6. Verify the plan shows `local_file.dockerfile` and `null_resource.build` will be created —
    **no google provider resources**.
@@ -79,9 +79,9 @@ Phase 1 success: `terraform validate` passes; `terraform plan` completes without
 credentials; the plan shows exactly two resources (`local_file.dockerfile`, `null_resource.build`);
 the Dockerfile template renders differently for `java_enabled=true` vs `false`.
 
-### Phase 2 — Local Pipeline Deploy via Terraform
+### Phase 2 — Local Collector Deploy via Terraform
 
-1. Write the `github_repos.yml` pipeline to `$CLONE/pipelines/` with a `deployment:` block:
+1. Write the `github_repos.yml` collector to `$CLONE/collectors/` with a `deployment:` block:
    ```yaml
    version: 1
    name: github_repos
@@ -110,7 +110,7 @@ the Dockerfile template renders differently for `java_enabled=true` vs `false`.
    ```
 4. Verify Terraform state was created:
    ```bash
-   ls ~/.dcf/terraform/pipelines/github_repos/local/
+   ls ~/.dcf/terraform/collectors/github_repos/local/
    # Expected: main.tf  outputs.tf  terraform.tfstate  terraform.tfvars.json  variables.tf
    ```
 5. Verify the Docker image was built:
@@ -121,7 +121,7 @@ the Dockerfile template renders differently for `java_enabled=true` vs `false`.
 6. Verify the build context was created at the stable path:
    ```bash
    ls ~/.dcf/build/local/github_repos/
-   # Expected: dcf/  pyproject.toml  pipelines/  connectors/  project.yml  (Dockerfile written by TF)
+   # Expected: dcf/  pyproject.toml  collectors/  connectors/  project.yml  (Dockerfile written by TF)
    ```
 7. Verify the DAG file was written:
    ```bash
@@ -136,13 +136,13 @@ the Dockerfile template renders differently for `java_enabled=true` vs `false`.
    - Remove the `deployment:` block from `github_repos.yml`
    - Run `dcf deploy github_repos` — confirm it exits with a clear error (not a traceback)
    - Restore the `deployment:` block
-10. Test `dcf deploy` with no args (if two pipelines with `deployment:` blocks exist):
-    - Create a second pipeline YAML (e.g., copy `github_repos.yml` as `github_repos_2.yml`)
-    - Run `dcf deploy` (no pipeline name) — confirm both are deployed
+10. Test `dcf deploy` with no args (if two collectors with `deployment:` blocks exist):
+    - Create a second collector YAML (e.g., copy `github_repos.yml` as `github_repos_2.yml`)
+    - Run `dcf deploy` (no collector name) — confirm both are deployed
 
 Phase 2 success: `dcf deploy github_repos` builds `dcf-local/github_repos:latest` via
 Terraform, writes `~/.dcf/airflow/dags/github_repos.py` containing a `DockerOperator` DAG,
-creates Terraform state at `~/.dcf/terraform/pipelines/github_repos/local/terraform.tfstate`,
+creates Terraform state at `~/.dcf/terraform/collectors/github_repos/local/terraform.tfstate`,
 and exits 0.
 
 ### Phase 3 — Idempotency and Undeploy (pre-Airflow)
@@ -151,7 +151,7 @@ and exits 0.
    - Terraform should detect the image is current (content_hash unchanged) and skip `docker build`
    - DAG file should be refreshed (overwritten with same content)
    - Command exits 0 without error
-2. Modify a pipeline file (e.g., add a comment to `pipelines/github_repos.yml`) and re-deploy:
+2. Modify a collector file (e.g., add a comment to `collectors/github_repos.yml`) and re-deploy:
    - Content hash should change → Terraform should rebuild the Docker image
    - Confirm a new image ID appears in `docker images`
 3. Run `dcf undeploy github_repos`:
@@ -170,7 +170,7 @@ and exits 0.
    ```
 6. Confirm Terraform state directory is removed:
    ```bash
-   ls ~/.dcf/terraform/pipelines/github_repos/local/
+   ls ~/.dcf/terraform/collectors/github_repos/local/
    # Expected: No such file or directory
    ```
 7. Confirm warehouse data is untouched — if any Parquet files exist from a prior run, verify
@@ -223,29 +223,29 @@ Add it manually: `airflow_admin_password: "testpassword123"`.
     does NOT restart (Terraform detects no changes needed); only the DAG file is added back.
 
 Phase 4 success: Airflow UI is accessible at `http://localhost:8080`; `github_repos` DAG
-appears within 30s; manual DAG trigger executes the pipeline container and writes Parquet to
+appears within 30s; manual DAG trigger executes the collector container and writes Parquet to
 the warehouse; undeploy removes the DAG file without restarting Airflow; second deploy is
 idempotent for the Airflow stack.
 
 ## Success Criteria
 
-- [ ] Phase 1: `terraform validate` passes in `dcf/infra/modules/batch_pipeline_local/` without GCP credentials
+- [ ] Phase 1: `terraform validate` passes in `dcf/infra/modules/batch_collector_local/` without GCP credentials
 - [ ] Phase 1: `terraform plan` shows exactly `local_file.dockerfile` and `null_resource.build` — no google provider resources
-- [ ] Phase 1: `batch_pipeline.Dockerfile.tftpl` renders with JVM install when `java_enabled=true`, without it when `false`
+- [ ] Phase 1: `batch_collector.Dockerfile.tftpl` renders with JVM install when `java_enabled=true`, without it when `false`
 - [ ] Phase 2: `dcf validate github_repos` accepts the `deploy: { schedule: "0 8 * * *" }` block without error
 - [ ] Phase 2: `dcf validate` rejects an invalid cron expression with a clear error message
 - [ ] Phase 2: `dcf deploy github_repos` (local) exits 0 and builds `dcf-local/github_repos:latest`
-- [ ] Phase 2: `~/.dcf/terraform/pipelines/github_repos/local/terraform.tfstate` exists after deploy
+- [ ] Phase 2: `~/.dcf/terraform/collectors/github_repos/local/terraform.tfstate` exists after deploy
 - [ ] Phase 2: `~/.dcf/airflow/dags/github_repos.py` exists and contains `DockerOperator`
-- [ ] Phase 2: `dcf deploy github_repos` on a pipeline with no `deployment:` block exits with a clear error (not a traceback)
+- [ ] Phase 2: `dcf deploy github_repos` on a collector with no `deployment:` block exits with a clear error (not a traceback)
 - [ ] Phase 3: Second `dcf deploy github_repos` is idempotent — no new image built when content unchanged
-- [ ] Phase 3: Modifying a pipeline file changes the content_hash and triggers an image rebuild
+- [ ] Phase 3: Modifying a collector file changes the content_hash and triggers an image rebuild
 - [ ] Phase 3: `dcf undeploy github_repos` removes the Docker image, DAG file, and Terraform state dir
 - [ ] Phase 3: Warehouse data files are untouched after undeploy
 - [ ] Phase 4: `dcf deploy github_repos` starts the local Airflow Docker Compose stack
 - [ ] Phase 4: Airflow UI is accessible at `http://localhost:8080`
 - [ ] Phase 4: `github_repos` DAG appears in Airflow UI within 30s of deploy
-- [ ] Phase 4: Manually triggering the DAG runs the pipeline container and writes Parquet to the warehouse
+- [ ] Phase 4: Manually triggering the DAG runs the collector container and writes Parquet to the warehouse
 - [ ] Phase 4: `dcf undeploy github_repos` removes the DAG file; Airflow no longer shows the DAG within ~30s (without restart)
 - [ ] Phase 4: Second `dcf deploy github_repos` does not restart the Airflow stack (only DAG file refreshed)
 - [ ] Throughout: No GCP credentials used or required in Phases 1–4
@@ -253,7 +253,7 @@ idempotent for the Airflow stack.
 ## Known Complexity
 
 - **Docker socket mount on Mac:** The `airflow-scheduler` container mounts
-  `/var/run/docker.sock` to allow `DockerOperator` to start pipeline containers. Docker
+  `/var/run/docker.sock` to allow `DockerOperator` to start collector containers. Docker
   Desktop on Mac uses a virtual socket at `unix:///var/run/docker.sock` which is exposed to
   containers — but this path may differ on Linux or Windows. The scenario assumes Mac with
   Docker Desktop; note any socket path failure as an environment-specific finding.
@@ -291,7 +291,7 @@ idempotent for the Airflow stack.
   being replaced. The first run will almost certainly fail because the Terraform module and
   the new Python code don't exist yet. Document this as a Blocking finding and stop.
 
-- **Blocking (expected):** `dcf/infra/modules/batch_pipeline_local/` does not exist yet —
+- **Blocking (expected):** `dcf/infra/modules/batch_collector_local/` does not exist yet —
   `terraform validate` will fail in Phase 1 until the module is created. This is an expected
   first finding.
 
@@ -320,7 +320,7 @@ idempotent for the Airflow stack.
 - Full command prefix: `DCF_PROJECT_DIR=$CLONE uv --directory /path/to/dcf run dcf <command>`
 - After injecting `test_config.yml` as `project.yml`, explicitly set `catalog: local`. Do NOT
   use `catalog: gcp` at any point in Phases 1–4.
-- Use the `github_repos` pipeline pointed at `https://api.github.com/orgs/apache/repos` — no
+- Use the `github_repos` collector pointed at `https://api.github.com/orgs/apache/repos` — no
   auth required, keeps data fetching simple.
 - For Phase 1 `terraform validate`, you will need `terraform` installed. Check with
   `terraform version`. If not installed, document as a prerequisite finding and stop Phase 1.
@@ -329,7 +329,7 @@ idempotent for the Airflow stack.
   error message is actionable.
 - If Phase 4's Airflow DAG run fails, check the Airflow task log in the UI first, then check
   Docker logs (`docker logs <scheduler-container>`). A common failure is the DockerOperator
-  not finding the pipeline image (`dcf-local/github_repos:latest`) — confirm the image is in
+  not finding the collector image (`dcf-local/github_repos:latest`) — confirm the image is in
   the local daemon with `docker images`.
 - Record the Docker Compose version (`docker compose version`) in your findings — needed to
   evaluate whether `--wait` is supported.

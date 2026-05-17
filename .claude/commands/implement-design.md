@@ -30,7 +30,7 @@ Before drafting the plan, read the files the design names as targets. Verify the
 
 - `dcf/config/models.py` — existing Pydantic schema; identify where new fields slot in
 - `dcf/cli.py` — existing CLI commands; identify where new commands attach
-- `dcf/engine/runner.py` — pipeline execution loop
+- `dcf/engine/runner.py` — collector execution loop
 - `dcf/gcp/` — GCP provisioning; identify existing patterns to reuse or extend
 - `dcf/infra/modules/gcp/` — Terraform modules; identify existing module structure
 - `tests/` — existing test patterns; understand what test infrastructure is available
@@ -51,7 +51,7 @@ Do not ask questions already answered in the design or feature file. The goal is
 
 - **How should the work be phased?** Which components must be built first? Are there any parts that can be built and tested independently before the rest is ready?
 - **What is the minimum viable first phase?** What is the smallest slice that produces observable, testable behavior? (e.g. "validate accepts the deploy: block" is testable before deploy itself works)
-- **What is the local-first test vehicle?** Which existing pipeline or component should be used to test the implementation — something simple (no auth, flat JSON) that isolates failures to the new code, not the data source.
+- **What is the local-first test vehicle?** Which existing collector or component should be used to test the implementation — something simple (no auth, flat JSON) that isolates failures to the new code, not the data source.
 - **Are there constraints on GCP resource creation?** If the design involves provisioning GCP resources, is there an existing project and service account set up? Can the test create real resources, or should Phase 1 be local-only?
 - **What already exists?** Is any part of this design already partially implemented? Are there branches, PRs, or prior run artifacts that should inform the plan?
 
@@ -75,7 +75,7 @@ Write `design/<slug>-plan.md` using this structure:
 ## Overview
 
 [2–3 sentences. What is being built, in what order, and what the key risk areas are.
-Mention the test vehicle (the existing pipeline used to drive testing).]
+Mention the test vehicle (the existing collector used to drive testing).]
 
 ---
 
@@ -137,7 +137,7 @@ Reference design doc sections by heading when relevant.]
 Rules for the plan:
 - **Every file touched must appear in the Files table** — no loose "and also update X" in prose.
 - **Phase boundaries must be testable.** Each phase ends with a condition that can be verified with a CLI command, unit test, or observable output. If you cannot write a "Done When" checklist for a phase, it is not a phase — it is part of the next one.
-- **Implementation Notes must be concrete.** "Add a `deploy` field to the Pipeline model" is not enough — specify the Pydantic type, whether it is Optional, its default, and which validators to add. An implementation agent reading this plan should not need to re-read the design doc to understand what to code.
+- **Implementation Notes must be concrete.** "Add a `deploy` field to the Collector model" is not enough — specify the Pydantic type, whether it is Optional, its default, and which validators to add. An implementation agent reading this plan should not need to re-read the design doc to understand what to code.
 - **One file, one row.** If a file needs multiple changes, add multiple rows or enumerate the changes within the Notes column.
 
 ---
@@ -158,7 +158,7 @@ For each implementation phase (or group of closely related phases), write a test
 - **Success Criteria:** Checkboxes that map directly to the feature's Acceptance Criteria (if a feature file exists). Every acceptance criterion should appear somewhere in a scenario's success criteria.
 - **Known Complexity:** Identify the hard parts before they surface. GCP provisioning time, IAM propagation delays, API enablement prerequisites — name them so the test agent doesn't mistake expected behavior for a bug.
 - **Known Expected Findings:** List any gaps in the design or codebase that the test agent is likely to hit. These are not bugs to fix — they are findings to document. Pre-identifying them prevents the test agent from spending time diagnosing expected failures.
-- **Notes for Agent:** Specific, operational guidance. Which pipeline to use as the test vehicle. Which gcloud commands to run. What to check if Phase N fails. Which findings to document and stop on (don't work around missing functionality).
+- **Notes for Agent:** Specific, operational guidance. Which collector to use as the test vehicle. Which gcloud commands to run. What to check if Phase N fails. Which findings to document and stop on (don't work around missing functionality).
 
 **Critical rule:** Scenario Phase 1 must always be runnable with the test environment that already exists (clone of quipu + `test_config.yml`). Do not put a GCP resource creation step in Phase 1 if local validation can come first.
 
@@ -210,4 +210,4 @@ Ask: is there anything to revise in the plan or scenarios?
 
 **Acceptance criteria → success criteria.** Every acceptance criterion in the feature file must appear as a success criterion checkbox in at least one scenario. If you find acceptance criteria that no scenario covers, add them — do not silently drop them.
 
-**Test vehicle must be simple.** The pipeline used to drive testing should be the simplest possible one that exercises the implementation. For deployment features, `github_repos` is the standard test vehicle — no auth, flat JSON, one iterate axis. This isolates failures to the new code, not the data source.
+**Test vehicle must be simple.** The collector used to drive testing should be the simplest possible one that exercises the implementation. For deployment features, `github_repos` is the standard test vehicle — no auth, flat JSON, one iterate axis. This isolates failures to the new code, not the data source.

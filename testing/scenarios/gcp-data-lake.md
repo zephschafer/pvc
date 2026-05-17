@@ -3,15 +3,15 @@
 ## Goal
 
 Test the full GCP path: provision a GCS-backed Iceberg data lake with `dcf gcp setup`,
-run a pipeline with `catalog: gcp`, and verify the data is queryable. This path has
+run a collector with `catalog: gcp`, and verify the data is queryable. This path has
 never been tested. It is dcf's cloud offering — the equivalent of Fivetran writing to
 Snowflake or BigQuery.
 
 **The core questions:**
 1. Does `dcf gcp setup` complete without errors on a fresh GCP project?
-2. Does a pipeline run with `catalog: gcp` successfully write to GCS?
+2. Does a collector run with `catalog: gcp` successfully write to GCS?
 3. Is the GCS-backed warehouse queryable via the MCP `query_warehouse` tool?
-4. Does the `new-pipeline` skill mention the GCP path, or does it assume `catalog: local`?
+4. Does the `new-collector` skill mention the GCP path, or does it assume `catalog: local`?
 
 ## Prerequisites
 
@@ -25,8 +25,8 @@ a UX gap (dcf requires Terraform but doesn't document this requirement).
 
 ## Target API
 
-Use github_repos (same as Round 1/2) — the simplest pipeline, to isolate any
-GCP-specific failures from pipeline logic failures. The data content is not the
+Use github_repos (same as Round 1/2) — the simplest collector, to isolate any
+GCP-specific failures from collector logic failures. The data content is not the
 focus; the write path is.
 
 ```
@@ -49,7 +49,7 @@ Auth: Bearer token (GITHUB_TOKEN — already configured).
 
 Phase 1 success: `dcf gcp setup` completes, GCS bucket exists, `project.yml` updated.
 
-### Phase 2 — Pipeline Run with GCP Catalog
+### Phase 2 — Collector Run with GCP Catalog
 
 1. Update `project.yml` to `catalog: gcp`
 2. Run `dcf run github_private_repos --limit 1`
@@ -60,7 +60,7 @@ Phase 1 success: `dcf gcp setup` completes, GCS bucket exists, `project.yml` upd
    - Does it have Parquet data files?
 6. Run a second time — does incremental upsert work against GCS-backed Iceberg?
 
-Phase 2 success: pipeline writes to GCS, deduplication works, data is in GCS.
+Phase 2 success: collector writes to GCS, deduplication works, data is in GCS.
 
 ### Phase 3 — Query the GCP Warehouse via MCP
 
@@ -101,7 +101,7 @@ Phase 4 success: GCP resources cleaned up, no ongoing charges.
 - **Terraform dependency:** `dcf gcp setup` runs Terraform. Terraform must be installed.
   If not, document as a UX gap (undocumented prerequisite).
 - **GCP IAM propagation:** Service account permissions can take 30–60 seconds to
-  propagate. If the pipeline run immediately after `gcp setup` fails with permissions
+  propagate. If the collector run immediately after `gcp setup` fails with permissions
   errors, wait 60 seconds and retry before filing a bug.
 - **Spark + GCS connector:** Spark requires the GCS connector JAR to write to GCS.
   dcf may need to configure `spark.jars` with the GCS connector. This is likely a
@@ -113,7 +113,7 @@ Phase 4 success: GCP resources cleaned up, no ongoing charges.
 
 ## Known Expected Findings (Pre-identified)
 
-- **Expected UX gap:** `new-pipeline` skill makes no mention of `catalog: gcp` or
+- **Expected UX gap:** `new-collector` skill makes no mention of `catalog: gcp` or
   when to use the GCP path. Users building for production would not know to do `gcp setup`.
 - **Expected UX gap:** QUICKSTART.md and README.md mention `dcf gcp setup` but may
   not document the Terraform prerequisite or the full setup flow.
@@ -141,7 +141,7 @@ collect it automatically.
 - **Before starting:** Run `which terraform` to verify Terraform is installed.
   If missing, document as a UX finding and ask Zeph to install before proceeding.
 - **Before starting:** Run `gcloud auth list` to verify GCP authentication.
-- Use `github_private_repos` as the test pipeline (already exists in quipu/pipelines/).
+- Use `github_private_repos` as the test collector (already exists in quipu/collectors/).
   This minimizes variables — only the catalog changes between local and GCP runs.
 - When checking GCS, use `gsutil ls gs://<bucket>/` to list warehouse files.
   Record the exact GCS path structure — does it match `warehouse/<namespace>/<table>/data/`?

@@ -2,7 +2,7 @@
 
 ## Goal
 
-Build a pipeline that ingests payment records from Stripe. Stripe is Fivetran's
+Build a collector that ingests payment records from Stripe. Stripe is Fivetran's
 most-used connector; if dcf can't ingest Stripe, it can't claim to replace Fivetran
 for most businesses. This scenario tests cursor-based pagination (the dominant pattern
 for financial APIs) and validates the Python connector as the workaround path.
@@ -71,9 +71,9 @@ not an ISO 8601 string. dcf's `timestamp` type must handle this.
 
 ### Phase 1 — YAML Path (Document the Pagination Limitation)
 
-Attempt to build a pipeline using only dcf YAML:
+Attempt to build a collector using only dcf YAML:
 
-1. Write `pipelines/stripe_payments.yml` using `type: http`, `date_range` iterate
+1. Write `collectors/stripe_payments.yml` using `type: http`, `date_range` iterate
    axis (convert ISO dates to Unix timestamps via format string if supported)
 2. Use `records_path: data` to extract from the `data` array in the response
 3. Run `dcf validate stripe_payments`
@@ -92,19 +92,19 @@ Write a Python connector at `connectors/stripe_payments.py`:
 1. Use the `stripe` Python SDK or raw `requests` — whichever is simpler
 2. Handle cursor pagination: loop while `has_more` is true, pass `starting_after`
    from last item's `id`
-3. Accept `created_gte` and `created_lte` as Unix timestamp params from pipeline YAML
+3. Accept `created_gte` and `created_lte` as Unix timestamp params from collector YAML
 4. Schema: id, amount (cents, integer), currency, status, customer_id, created
    (Unix timestamp → timestamp type), card_brand, card_last4
 5. Run `dcf run stripe_payments --limit 1`
 6. Verify: `amount` is in cents (not dollars — dcf has no unit conversion)
 7. Verify: `created` Unix timestamp parses correctly as a timestamp type
-8. Run full pipeline, verify deduplication on `id`
+8. Run full collector, verify deduplication on `id`
 
 Phase 2 success: Python connector with cursor pagination works end-to-end.
 
 ## Success Criteria
 
-- [ ] Phase 1: Pipeline YAML validates successfully
+- [ ] Phase 1: Collector YAML validates successfully
 - [ ] Phase 1: Cursor pagination limitation confirmed and documented
 - [ ] Phase 2: Python connector successfully paginates through all results
 - [ ] Phase 2: `amount` stored as integer (cents, not dollars)
@@ -161,7 +161,7 @@ Zeph provides this. Store as `stripe_secret_key` in `project.yml` or as env var.
   In dcf YAML, this maps to `type: header` with `Authorization: Basic <base64(key:)>`,
   or `type: bearer` with the key as value. Try bearer first — Stripe accepts both.
 - If no PaymentIntents exist in the test account, create 2-3 test payments via
-  Stripe Dashboard (Developers → PaymentIntents → Create) before running the pipeline.
+  Stripe Dashboard (Developers → PaymentIntents → Create) before running the collector.
 - For the Unix timestamp question: test by projecting `created` with `type: timestamp`
   and checking whether the warehouse column contains a proper datetime or an integer.
 - The `stripe` Python package may not be installed in the quipu project. If needed,

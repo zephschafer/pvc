@@ -2,7 +2,7 @@
 
 ## Goal
 
-Build a pipeline that ingests metadata from the authenticated user's private GitHub
+Build a collector that ingests metadata from the authenticated user's private GitHub
 repositories. This scenario tests the full credential lifecycle: guiding a user to
 create a token, store it, handle missing/invalid credentials gracefully, and
 successfully ingest authenticated data.
@@ -33,9 +33,9 @@ but has NOT yet created a GitHub token. Walk through the following:
 
 1. Run `dcf init` — does it offer to collect a GitHub token? Does it prompt for
    arbitrary credentials, or only the hardcoded Portland Maps key?
-2. Read the `new-pipeline` skill — does it include any guidance about credential
+2. Read the `new-collector` skill — does it include any guidance about credential
    setup, token scopes, or storage?
-3. If the skill is silent, attempt to write the pipeline YAML anyway (with
+3. If the skill is silent, attempt to write the collector YAML anyway (with
    `{{ env.GITHUB_TOKEN }}` in the auth block) WITHOUT setting the env var.
 4. Run `dcf validate github_private_repos` — does it catch the missing credential?
    Or does validation pass and the error only surface at runtime?
@@ -77,14 +77,14 @@ With a valid token:
 1. Run `dcf run github_private_repos --limit 1` — verify it fetches at least one real
    private repo row
 2. Check schema: `private` field should be boolean `True`, not the string `"True"`
-3. Run the full pipeline
+3. Run the full collector
 4. Re-run and confirm row count is stable (incremental deduplication)
 
 ## Success Criteria
 
 ### Phase 1 — Credential Guidance
 - [ ] `dcf init` behavior documented: does it offer GitHub credential collection?
-- [ ] `new-pipeline` skill behavior documented: does it guide credential setup?
+- [ ] `new-collector` skill behavior documented: does it guide credential setup?
 - [ ] `dcf validate` behavior documented: does it catch missing env vars at validate time?
 - [ ] Missing-token error message recorded verbatim — rated: actionable / partially actionable / not actionable
 
@@ -94,7 +94,7 @@ With a valid token:
 - [ ] HTTP status code (401) is visible in the error output
 
 ### Phase 3 — Happy Path
-- [ ] Pipeline YAML validates successfully
+- [ ] Collector YAML validates successfully
 - [ ] `--limit 1` fetches at least 1 real private repo (confirm `private: true` in warehouse)
 - [ ] Schema projection captures: id, name, full_name, private, description, language, stargazers_count, forks_count, created_at, updated_at, default_branch, visibility
 - [ ] `private` field is stored as boolean, not string
@@ -123,9 +123,9 @@ it temporarily: `unset GITHUB_TOKEN`.
 These gaps were identified by code review before running the test. The scenario should
 confirm or correct each, and adjust severity based on what is actually observed.
 
-- **Expected F-006 (Minor / Skill):** `new-pipeline` skill has no guidance on credential
+- **Expected F-006 (Minor / Skill):** `new-collector` skill has no guidance on credential
   creation, required token scopes, or storage mechanism. A first-time user building an
-  authenticated pipeline is left to figure this out independently.
+  authenticated collector is left to figure this out independently.
 
 - **Expected F-007 (Minor / UX):** `dcf init` is hardcoded to the Portland Maps API key.
   There is no general-purpose credential collection — no `dcf init --add-key` or equivalent.
@@ -149,7 +149,7 @@ findings discovered during the run.
 
 ## Notes for Agent
 
-- Use `namespace: github` in the pipeline YAML to exercise the namespace field added in F-002
+- Use `namespace: github` in the collector YAML to exercise the namespace field added in F-002
 - Project the `private` field with `type: boolean` to explicitly test boolean casting
 - The test project is `/Users/zephschafer/Documents/GitHub/quipu/`
 - Record all error messages verbatim in the run report — do not paraphrase them

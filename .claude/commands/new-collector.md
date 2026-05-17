@@ -1,4 +1,4 @@
-You are helping the user create a new dcf pipeline. dcf is a YAML-driven data ingestion framework that writes to a local Apache Iceberg data lake.
+You are helping the user create a new dcf collector. dcf is a YAML-driven data ingestion framework that writes to a local Apache Iceberg data lake.
 
 Follow these steps in order. Do not skip ahead — each step informs the next.
 
@@ -13,7 +13,7 @@ Ask the user (or use context already provided):
 
 ## 2. Check credentials
 
-If the API requires authentication, handle this before writing any pipeline YAML:
+If the API requires authentication, handle this before writing any collector YAML:
 
 **Does the API need a key or token?**
 - Check whether the credential already exists: look for it as an environment variable (e.g. `STRIPE_SECRET_KEY`) or in `project.yml` as a lowercase key (e.g. `stripe_secret_key`).
@@ -34,7 +34,7 @@ Option 2 — `project.yml` (convenient for persistent keys; ensure project.yml i
 my_api_key: sk-xxxx
 ```
 
-Then reference it in pipeline YAML as `{{ env.MY_API_KEY }}`.
+Then reference it in collector YAML as `{{ env.MY_API_KEY }}`.
 
 **Auth type to use in the YAML:**
 - `type: bearer` — for `Authorization: Bearer <token>` (GitHub, Stripe, Linear, etc.). The `key` field is optional.
@@ -43,7 +43,7 @@ Then reference it in pipeline YAML as `{{ env.MY_API_KEY }}`.
 
 ## 3. Probe the API before writing any code
 
-Before designing the pipeline, make a real request to understand the response shape. This determines which source type to use and how the scraper needs to work.
+Before designing the collector, make a real request to understand the response shape. This determines which source type to use and how the scraper needs to work.
 
 ```python
 import requests
@@ -59,11 +59,11 @@ Key questions to answer:
 - Does it require HTML parsing or multi-step auth? → `type: python`
 - What fields are available and what are their names exactly?
 
-## 4. Reference existing pipelines
+## 4. Reference existing collectors
 
-Use `list_pipelines` to see what already exists. Use `get_pipeline` on the most structurally similar one as a reference.
+Use `list_collectors` to see what already exists. Use `get_collector` on the most structurally similar one as a reference.
 
-## 5. Choose source type and design the pipeline
+## 5. Choose source type and design the collector
 
 Pick the source type **before** writing any YAML. The wrong choice requires a full rewrite.
 
@@ -98,7 +98,7 @@ Pick the source type **before** writing any YAML. The wrong choice requires a fu
 
 `PythonSource` has **no `auth` block** in the YAML — there is no `auth:` field for python connectors. Pass the API key as a static param instead, and read it from `dynamic_params` inside the connector:
 
-**Pipeline YAML:**
+**Collector YAML:**
 ```yaml
 source:
   type: python
@@ -147,22 +147,22 @@ Each iterate axis loops over one param. Multiple axes produce a cartesian produc
 - `date_range` — iterates over time windows (only for `type: http`)
 - `categorical` — iterates over a list of values (works for both types)
 
-For `type: python` pipelines that span a date range, pass `start_date` and `end_date` as **static params** (not iterate axes) and let the scraper fetch the full range in one call per iteration. This is simpler than iterating over dates.
+For `type: python` collectors that span a date range, pass `start_date` and `end_date` as **static params** (not iterate axes) and let the scraper fetch the full range in one call per iteration. This is simpler than iterating over dates.
 
 ## 6. Write the files
 
-For `type: python` pipelines, write the scraper first so you can test the fetch logic in isolation before wiring it into dcf:
+For `type: python` collectors, write the scraper first so you can test the fetch logic in isolation before wiring it into dcf:
 1. Use `write_connector` to save `connectors/{name}.py`
 2. Quickly verify the scraper returns sensible data for one iteration by calling it directly
-3. Use `write_pipeline` to save `pipelines/{name}.yml`
-4. Run `validate_pipeline` — fix any errors before proceeding
+3. Use `write_collector` to save `collectors/{name}.yml`
+4. Run `validate_collector` — fix any errors before proceeding
 
 ## 7. Test with a small run
 
-Use `run_pipeline` with `limit=1` to run only the first iteration, and small params to limit data volume:
+Use `run_collector` with `limit=1` to run only the first iteration, and small params to limit data volume:
 
 ```
-run_pipeline("my_pipeline", limit=1, params={"max_records": 5, "end_date": "2024-01-07"})
+run_collector("my_collector", limit=1, params={"max_records": 5, "end_date": "2024-01-07"})
 ```
 
 Watch for:
@@ -175,30 +175,30 @@ Watch for:
 Use `query_warehouse` to confirm the data looks right:
 
 ```sql
-SELECT * FROM my_pipeline.my_pipeline LIMIT 10
+SELECT * FROM my_collector.my_collector LIMIT 10
 ```
 
 Check: are column types sensible? Are values in the expected range? Is the row count what you expected from the test run?
 
 ## 9. Run fully and verify dedup
 
-Run the full pipeline across all iterations:
+Run the full collector across all iterations:
 
 ```
-run_pipeline("my_pipeline", params={"start_date": "2024-01-01", "end_date": "2024-01-07"})
+run_collector("my_collector", params={"start_date": "2024-01-01", "end_date": "2024-01-07"})
 ```
 
-Then **re-run the exact same command**. For `incremental` pipelines, the row count must stay the same — this confirms upserts are working and you won't accumulate duplicates on repeated runs. Query and compare:
+Then **re-run the exact same command**. For `incremental` collectors, the row count must stay the same — this confirms upserts are working and you won't accumulate duplicates on repeated runs. Query and compare:
 
 ```sql
-SELECT COUNT(*) FROM my_pipeline.my_pipeline
+SELECT COUNT(*) FROM my_collector.my_collector
 ```
 
 If the count grows on re-run, the primary key is not matching correctly — check that the `id` or key field is constructed deterministically (same inputs always produce the same key).
 
 ## 10. (Optional) Deploy to GCP
 
-If the user wants this pipeline to run on a schedule in the cloud rather than just locally, dcf supports deploying to GCP via Cloud Composer (Airflow) + Cloud Run.
+If the user wants this collector to run on a schedule in the cloud rather than just locally, dcf supports deploying to GCP via Cloud Composer (Airflow) + Cloud Run.
 
 **Prerequisites — run once per project:**
 ```bash
@@ -212,7 +212,7 @@ gcloud services enable composer.googleapis.com run.googleapis.com \
   cloudbuild.googleapis.com artifactregistry.googleapis.com
 ```
 
-**Add a `deploy:` block to the pipeline YAML:**
+**Add a `deploy:` block to the collector YAML:**
 ```yaml
 deploy:
   schedule: "0 8 * * *"   # cron expression — required
@@ -221,9 +221,9 @@ deploy:
 
 **Deploy with one command:**
 ```bash
-dcf deploy <pipeline-name>    # provisions Cloud Run job + Composer DAG
-dcf undeploy <pipeline-name>  # tears down job/DAG without touching data
-dcf deploy-status             # list all deployed pipelines
+dcf deploy <collector-name>    # provisions Cloud Run job + Composer DAG
+dcf undeploy <collector-name>  # tears down job/DAG without touching data
+dcf deploy-status             # list all deployed collectors
 ```
 
 Only suggest this step if the user has asked about scheduling, production deployment, or running without manual intervention.
@@ -231,7 +231,7 @@ Only suggest this step if the user has asked about scheduling, production deploy
 ## 11. Done
 
 Report:
-- Pipeline name and warehouse table location (`namespace.table`)
+- Collector name and warehouse table location (`namespace.table`)
 - Number of columns
 - Row count after the full test run
-- Confirmation that re-run produced the same row count (for `incremental` pipelines)
+- Confirmation that re-run produced the same row count (for `incremental` collectors)

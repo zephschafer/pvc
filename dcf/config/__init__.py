@@ -1,4 +1,4 @@
-from .loader import load_pipeline, load_all_pipelines
-from .models import Pipeline
+from .loader import load_collector, load_all_collectors
+from .models import Collector
 
-__all__ = ["load_pipeline", "load_all_pipelines", "Pipeline"]
+__all__ = ["load_collector", "load_all_collectors", "Collector"]

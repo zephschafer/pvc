@@ -2,10 +2,10 @@
 
 ## Goal
 
-Test the full local streaming deployment lifecycle: a pipeline YAML with `source.type: pubsub`
+Test the full local streaming deployment lifecycle: a collector YAML with `source.type: pubsub`
 and `deployment.type: streaming` is deployed locally using Docker — an Apache Kafka broker (KRaft,
 no Zookeeper) and a lightweight stream runner container — with no GCP account required. Messages
-are published via `dcf publish`, consumed from Kafka, projected through the pipeline schema, and
+are published via `dcf publish`, consumed from Kafka, projected through the collector schema, and
 written as windowed Parquet files to the local warehouse. Then verify idempotency and clean
 teardown via `dcf undeploy`.
 
@@ -24,7 +24,7 @@ This scenario tests `dcf/local_deploy.py` (Docker orchestration), `dcf/local_str
 (Kafka consumer + windowed Parquet writer), and the `dcf publish` CLI command. No external API,
 no GCP infrastructure.
 
-## Test Pipeline
+## Test Collector
 
 ```yaml
 version: 1
@@ -47,7 +47,7 @@ deployment:
 ```
 
 Note: `source.subscription` uses a placeholder path (`projects/local-dev/...`). Local mode
-ignores it — the Kafka topic is always derived as `dcf-{pipeline_name}`. The subscription
+ignores it — the Kafka topic is always derived as `dcf-{collector_name}`. The subscription
 field exists because the schema requires it for `source.type: pubsub`.
 
 ## Test Phases
@@ -56,7 +56,7 @@ field exists because the schema requires it for `source.type: pubsub`.
 
 1. Clone quipu and inject `test_config.yml` as `project.yml` (standard test setup).
 2. Overwrite `catalog: local` in `project.yml`.
-3. Write the `click_events.yml` pipeline above to `$CLONE/pipelines/`.
+3. Write the `click_events.yml` collector above to `$CLONE/collectors/`.
    Use `window_seconds: 15` for fast iteration (not 60).
 4. Run `dcf validate click_events` — should show `(streaming, subscription: ..., 5 columns)`.
 5. Run `docker info` — confirm Docker Desktop is running.
@@ -155,18 +155,18 @@ Phase 4 success: all Docker resources removed; warehouse data intact.
 
 - **`source.subscription` is required but unused locally**: The schema requires a
   `subscription` field for `source.type: pubsub`. For local mode this path is meaningless
-  (Kafka topic is `dcf-{pipeline_name}`). The placeholder path `projects/local-dev/...`
+  (Kafka topic is `dcf-{collector_name}`). The placeholder path `projects/local-dev/...`
   satisfies the schema but may surface as a UX confusion for new users.
 
 ## Known Expected Findings (Pre-identified)
 
 - **UX (likely)**: `source.subscription` is required by the `PubSubSource` model even
   for local deployments where it has no effect. A user who wants a local-only streaming
-  pipeline must still write a GCP-style subscription path. Consider making `subscription`
+  collector must still write a GCP-style subscription path. Consider making `subscription`
   optional when `catalog: local`, or accepting any string for local mode.
 
 - **UX (possible)**: `window_seconds` cannot be overridden at deploy time without editing
-  the pipeline YAML. A `--window-seconds N` flag on `dcf deploy` would improve local
+  the collector YAML. A `--window-seconds N` flag on `dcf deploy` would improve local
   iteration speed (e.g., 5s windows during development).
 
 - **Runtime (watch for)**: The `_wait_for_kafka()` timeout (30s) may be insufficient on
@@ -188,7 +188,7 @@ Phase 4 success: all Docker resources removed; warehouse data intact.
 
 - Full command prefix: `DCF_PROJECT_DIR=$CLONE uv --directory /Users/zephschafer/Documents/GitHub/dcf run dcf <command>`
 - After injecting `test_config.yml` as `project.yml`, explicitly set `catalog: local`.
-- Use `window_seconds: 15` in the pipeline YAML (not 60) to keep Phase 3 under 30 seconds.
+- Use `window_seconds: 15` in the collector YAML (not 60) to keep Phase 3 under 30 seconds.
 - Pull `apache/kafka:latest` in Phase 1 to avoid deploy timeout. Command: `docker pull apache/kafka:latest`
 - The `source.subscription` placeholder `projects/local-dev/subscriptions/click-events-sub`
   satisfies the schema validator and is not used by the local runner.

@@ -1,4 +1,4 @@
-"""Batch pipeline deployment: builds a container image via Cloud Build, then uses
+"""Batch collector deployment: builds a container image via Cloud Build, then uses
 Terraform to provision a Cloud Run job. DAG is written directly to GCS for the
 custom Airflow stack (no Cloud Composer)."""
 
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 _DCF_PKG_DIR = Path(__file__).parent.parent          # dcf/ package
 _DCF_REPO_ROOT = _DCF_PKG_DIR.parent
-_BATCH_MODULE_DIR = _DCF_PKG_DIR / "infra" / "modules" / "batch_pipeline"
+_BATCH_MODULE_DIR = _DCF_PKG_DIR / "infra" / "modules" / "batch_collector"
 _BUILD_DIR = Path.home() / ".dcf" / "build"
 _TF_PLUGIN_CACHE = Path.home() / ".dcf" / ".plugin-cache"
 
@@ -71,13 +71,13 @@ def _write_pyproject_toml(dest: Path) -> None:
 # ------------------------------------------------------------------ #
 
 def deploy(
-    pipeline_name: str,
+    collector_name: str,
     schedule: str,
     paused: bool,
     project_root: Path,
     gcp_config: dict,
 ) -> dict:
-    """Provision a Cloud Run job for a pipeline via Terraform, write DAG to GCS,
+    """Provision a Cloud Run job for a collector via Terraform, write DAG to GCS,
     and provision the GCP Airflow stack (Cloud Run + Cloud SQL) if needed.
 
     Returns the deployment state dict to write into project.yml.
@@ -87,10 +87,10 @@ def deploy(
     warehouse_bucket = gcp_config["warehouse_bucket"]
     sa_email = gcp_config["sa_email"]
 
-    image_uri = _image_uri(project_id, region, pipeline_name)
+    image_uri = _image_uri(project_id, region, collector_name)
 
-    print(f"  Syncing build context for '{pipeline_name}'...", flush=True)
-    build_context = _sync_build_context(project_root, pipeline_name, gcp_config)
+    print(f"  Syncing build context for '{collector_name}'...", flush=True)
+    build_context = _sync_build_context(project_root, collector_name, gcp_config)
     content_hash = _content_hash(build_context)
 
     print(f"  Ensuring Artifact Registry repository exists...", flush=True)
@@ -98,8 +98,8 @@ def deploy(
 
     print(f"  Applying Terraform (Cloud Run job + Cloud Build)...", flush=True)
     print(f"  (First build may take a few minutes)", flush=True)
-    job_name = _terraform_apply_pipeline(
-        pipeline_name=pipeline_name,
+    job_name = _terraform_apply_collector(
+        collector_name=collector_name,
         image_uri=image_uri,
         sa_email=sa_email,
         build_context=build_context,
@@ -111,14 +111,14 @@ def deploy(
 
     print(f"  Writing DAG to GCS...", flush=True)
     dag_content = _gcp_dag_content(
-        pipeline_name=pipeline_name,
+        collector_name=collector_name,
         schedule=schedule,
         paused=paused,
         project_id=project_id,
         region=region,
         job_name=job_name,
     )
-    _write_dag_gcs(dag_content, pipeline_name, warehouse_bucket)
+    _write_dag_gcs(dag_content, collector_name, warehouse_bucket)
 
     print(f"  Provisioning GCP Airflow stack...", flush=True)
     credentials = _generate_airflow_credentials(project_root)
@@ -137,7 +137,7 @@ def deploy(
 
     return {
         "schedule": schedule,
-        "dag_id": pipeline_name,
+        "dag_id": collector_name,
         "cloud_run_job": job_name,
         "airflow_url": airflow_url,
         "image_uri": image_uri,
@@ -145,17 +145,17 @@ def deploy(
     }
 
 
-def undeploy(pipeline_name: str, deployment: dict, gcp_config: dict, project_root: Path) -> None:
+def undeploy(collector_name: str, deployment: dict, gcp_config: dict, project_root: Path) -> None:
     """Remove the Cloud Run job via Terraform destroy and delete the DAG from GCS."""
     project_id = gcp_config["project_id"]
     region = gcp_config["region"]
     warehouse_bucket = gcp_config["warehouse_bucket"]
 
-    print(f"  Destroying Terraform resources for '{pipeline_name}'...", flush=True)
-    _terraform_destroy_pipeline(pipeline_name, project_id, region, project_root)
+    print(f"  Destroying Terraform resources for '{collector_name}'...", flush=True)
+    _terraform_destroy_collector(collector_name, project_id, region, project_root)
 
     print(f"  Deleting DAG from GCS...", flush=True)
-    _delete_dag_gcs(pipeline_name, warehouse_bucket)
+    _delete_dag_gcs(collector_name, warehouse_bucket)
 
     if not _gcs_dag_files_exist(warehouse_bucket):
         print(f"  No remaining DAGs — tearing down Airflow stack...", flush=True)
@@ -166,22 +166,22 @@ def undeploy(pipeline_name: str, deployment: dict, gcp_config: dict, project_roo
 # Build context                                                        #
 # ------------------------------------------------------------------ #
 
-def _image_uri(project_id: str, region: str, pipeline_name: str) -> str:
-    return f"{region}-docker.pkg.dev/{project_id}/dcf-runner/{pipeline_name}:latest"
+def _image_uri(project_id: str, region: str, collector_name: str) -> str:
+    return f"{region}-docker.pkg.dev/{project_id}/dcf-runner/{collector_name}:latest"
 
 
 def _sync_build_context(
-    project_root: Path, pipeline_name: str, gcp_config: dict
+    project_root: Path, collector_name: str, gcp_config: dict
 ) -> Path:
     """Create a stable build context dir at ~/.dcf/build/gcp/<name>/."""
-    build_context = _BUILD_DIR / "gcp" / pipeline_name
+    build_context = _BUILD_DIR / "gcp" / collector_name
     shutil.rmtree(build_context, ignore_errors=True)
     build_context.mkdir(parents=True)
 
     shutil.copytree(_DCF_PKG_DIR, build_context / "dcf")
     _write_pyproject_toml(build_context)
 
-    for subdir in ("pipelines", "connectors"):
+    for subdir in ("collectors", "connectors"):
         src = project_root / subdir
         dst = build_context / subdir
         if src.exists():
@@ -214,15 +214,15 @@ def _content_hash(build_context: Path) -> str:
 
 
 # ------------------------------------------------------------------ #
-# Terraform: per-pipeline resources                                    #
+# Terraform: per-collector resources                                   #
 # ------------------------------------------------------------------ #
 
-def _expected_job_name(pipeline_name: str) -> str:
-    return f"dcf-job-{pipeline_name.replace('_', '-')}"
+def _expected_job_name(collector_name: str) -> str:
+    return f"dcf-job-{collector_name.replace('_', '-')}"
 
 
-def _tf_work_dir(pipeline_name: str, project_root: Path) -> Path:
-    return _tf_state_dir(project_root) / "pipelines" / pipeline_name / "gcp"
+def _tf_work_dir(collector_name: str, project_root: Path) -> Path:
+    return _tf_state_dir(project_root) / "collectors" / collector_name / "gcp"
 
 
 def _copy_module_to_work_dir(module_dir: Path, work_dir: Path) -> None:
@@ -260,8 +260,8 @@ def _tf_run(cmd: list[str], work_dir: Path, env: dict) -> None:
     logger.info("terraform %s OK", cmd[1])
 
 
-def _terraform_apply_pipeline(
-    pipeline_name: str,
+def _terraform_apply_collector(
+    collector_name: str,
     image_uri: str,
     sa_email: str,
     build_context: Path,
@@ -271,7 +271,7 @@ def _terraform_apply_pipeline(
     project_root: Path,
 ) -> str:
     """Provision Cloud Run job via Terraform + Cloud Build. Returns the job name."""
-    work_dir = _tf_work_dir(pipeline_name, project_root)
+    work_dir = _tf_work_dir(collector_name, project_root)
     work_dir.mkdir(parents=True, exist_ok=True)
     _TF_PLUGIN_CACHE.mkdir(parents=True, exist_ok=True)
 
@@ -280,7 +280,7 @@ def _terraform_apply_pipeline(
     tfvars = {
         "project_id": project_id,
         "region": region,
-        "pipeline_name": pipeline_name,
+        "collector_name": collector_name,
         "image_uri": image_uri,
         "sa_email": sa_email,
         "build_context": str(build_context),
@@ -291,7 +291,7 @@ def _terraform_apply_pipeline(
 
     env = _tf_env()
     _tf_run(["terraform", "init", "-reconfigure"], work_dir, env)
-    _import_existing_cloud_run_job(pipeline_name, project_id, region, work_dir, env)
+    _import_existing_cloud_run_job(collector_name, project_id, region, work_dir, env)
     _tf_run(["terraform", "apply", "-auto-approve"], work_dir, env)
 
     outputs = json.loads(
@@ -303,16 +303,16 @@ def _terraform_apply_pipeline(
     return outputs["job_name"]["value"]
 
 
-def _terraform_destroy_pipeline(
-    pipeline_name: str, project_id: str, region: str, project_root: Path,
+def _terraform_destroy_collector(
+    collector_name: str, project_id: str, region: str, project_root: Path,
 ) -> None:
     """Destroy Cloud Run job via Terraform, then remove the state dir."""
-    work_dir = _tf_work_dir(pipeline_name, project_root)
+    work_dir = _tf_work_dir(collector_name, project_root)
     if not work_dir.exists():
         raise RuntimeError(
-            f"No Terraform state found for pipeline '{pipeline_name}' at {work_dir}.\n"
+            f"No Terraform state found for collector '{collector_name}' at {work_dir}.\n"
             "If you deployed from a different machine, delete the Cloud Run job manually:\n"
-            f"  gcloud run jobs delete dcf-job-{pipeline_name.replace('_', '-')} "
+            f"  gcloud run jobs delete dcf-job-{collector_name.replace('_', '-')} "
             f"--region {region} --project {project_id} --quiet"
         )
 
@@ -322,10 +322,10 @@ def _terraform_destroy_pipeline(
 
 
 def _import_existing_cloud_run_job(
-    pipeline_name: str, project_id: str, region: str, work_dir: Path, env: dict,
+    collector_name: str, project_id: str, region: str, work_dir: Path, env: dict,
 ) -> None:
     """Import an existing Cloud Run job into Terraform state to avoid 409 on apply."""
-    job_name = _expected_job_name(pipeline_name)
+    job_name = _expected_job_name(collector_name)
     check = subprocess.run(
         ["gcloud", "run", "jobs", "describe", job_name,
          "--region", region, "--project", project_id],
@@ -336,7 +336,7 @@ def _import_existing_cloud_run_job(
 
     resource_id = f"projects/{project_id}/locations/{region}/jobs/{job_name}"
     result = subprocess.run(
-        ["terraform", "import", "google_cloud_run_v2_job.pipeline", resource_id],
+        ["terraform", "import", "google_cloud_run_v2_job.collector", resource_id],
         cwd=str(work_dir), env=env, capture_output=True, text=True,
     )
     if result.returncode == 0:
@@ -351,12 +351,12 @@ def _import_existing_cloud_run_job(
 # GCS DAG management                                                   #
 # ------------------------------------------------------------------ #
 
-def _dag_gcs_path(pipeline_name: str) -> str:
-    return f"airflow/dags/{pipeline_name}.py"
+def _dag_gcs_path(collector_name: str) -> str:
+    return f"airflow/dags/{collector_name}.py"
 
 
 def _gcp_dag_content(
-    pipeline_name: str, schedule: str, paused: bool,
+    collector_name: str, schedule: str, paused: bool,
     project_id: str, region: str, job_name: str,
 ) -> str:
     paused_str = "True" if paused else "False"
@@ -367,7 +367,7 @@ from airflow import DAG
 from airflow.providers.google.cloud.operators.cloud_run import CloudRunExecuteJobOperator
 
 with DAG(
-    dag_id="{pipeline_name}",
+    dag_id="{collector_name}",
     schedule_interval="{schedule}",
     start_date=datetime(2024, 1, 1),
     catchup=False,
@@ -375,7 +375,7 @@ with DAG(
     tags=["dcf"],
 ) as dag:
     run_job = CloudRunExecuteJobOperator(
-        task_id="run_{pipeline_name}",
+        task_id="run_{collector_name}",
         project_id="{project_id}",
         region="{region}",
         job_name="{job_name}",
@@ -383,23 +383,23 @@ with DAG(
 """
 
 
-def _write_dag_gcs(dag_content: str, pipeline_name: str, warehouse_bucket: str) -> None:
+def _write_dag_gcs(dag_content: str, collector_name: str, warehouse_bucket: str) -> None:
     from google.cloud import storage
     client = storage.Client()
     bucket = client.bucket(warehouse_bucket)
-    blob = bucket.blob(_dag_gcs_path(pipeline_name))
+    blob = bucket.blob(_dag_gcs_path(collector_name))
     blob.upload_from_string(dag_content, content_type="text/plain")
-    logger.info("Uploaded DAG to gs://%s/%s", warehouse_bucket, _dag_gcs_path(pipeline_name))
+    logger.info("Uploaded DAG to gs://%s/%s", warehouse_bucket, _dag_gcs_path(collector_name))
 
 
-def _delete_dag_gcs(pipeline_name: str, warehouse_bucket: str) -> None:
+def _delete_dag_gcs(collector_name: str, warehouse_bucket: str) -> None:
     from google.cloud import storage
     client = storage.Client()
     bucket = client.bucket(warehouse_bucket)
-    blob = bucket.blob(_dag_gcs_path(pipeline_name))
+    blob = bucket.blob(_dag_gcs_path(collector_name))
     if blob.exists():
         blob.delete()
-        logger.info("Deleted DAG gs://%s/%s", warehouse_bucket, _dag_gcs_path(pipeline_name))
+        logger.info("Deleted DAG gs://%s/%s", warehouse_bucket, _dag_gcs_path(collector_name))
 
 
 def _gcs_dag_files_exist(warehouse_bucket: str) -> bool:

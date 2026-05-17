@@ -3,15 +3,15 @@ from __future__ import annotations
 import textwrap
 import traceback
 
-from ..config.models import Pipeline, PythonSource
+from ..config.models import Collector, PythonSource
 from .iterator import build_request_sequence
 from .fetcher import fetch_records
 from .projector import project
 from .. import writer as iceberg_writer
 
 
-def run_pipeline(
-    pipeline: Pipeline,
+def run_collector(
+    collector: Collector,
     catalog: str = "local",
     limit: int | None = None,
     param_overrides: dict | None = None,
@@ -23,16 +23,16 @@ def run_pipeline(
         from dcf.spark_session import get_spark
         spark = get_spark("dcf")
 
-    param_defs = {p.name: p for p in pipeline.source.params}
-    request_sequence = build_request_sequence(pipeline.cadence.iterate, param_defs)
+    param_defs = {p.name: p for p in collector.source.params}
+    request_sequence = build_request_sequence(collector.cadence.iterate, param_defs)
 
     if limit is not None:
         request_sequence = request_sequence[:limit]
 
     # Static params declared in the YAML (value is set) flow through to Python sources
-    static_params = {p.name: p.value for p in pipeline.source.params if p.value is not None}
+    static_params = {p.name: p.value for p in collector.source.params if p.value is not None}
 
-    print(f"\n[dcf] Running '{pipeline.name}' — {len(request_sequence)} requests\n")
+    print(f"\n[dcf] Running '{collector.name}' — {len(request_sequence)} requests\n")
 
     failed = 0
 
@@ -45,10 +45,10 @@ def run_pipeline(
 
         # For http sources, iterate-driven params are already handled in the fetcher;
         # pass full_params only to python sources which need everything in one dict
-        source_params = full_params if isinstance(pipeline.source, PythonSource) else dynamic_params
+        source_params = full_params if isinstance(collector.source, PythonSource) else dynamic_params
 
         try:
-            records = fetch_records(pipeline.source, source_params)
+            records = fetch_records(collector.source, source_params)
         except Exception as e:
             failed += 1
             print(f"    fetch error ({type(e).__name__}): {e}")
@@ -59,32 +59,32 @@ def run_pipeline(
             print(f"    0 records — skipping")
             continue
 
-        df = project(records, pipeline.source.schema_)
+        df = project(records, collector.source.schema_)
         print(f"    {len(df)} rows → writing")
 
-        iceberg_writer.write(spark, pipeline, df, catalog=catalog, dynamic_params=dynamic_params)
+        iceberg_writer.write(spark, collector, df, catalog=catalog, dynamic_params=dynamic_params)
 
     if catalog == "gcp":
         from .. import writer as _w
         bucket = _w.iceberg._gcs_warehouse_bucket()
-        if pipeline.namespace:
-            dest = f"gs://{bucket}/{pipeline.namespace}/{pipeline.name}/data"
+        if collector.namespace:
+            dest = f"gs://{bucket}/{collector.namespace}/{collector.name}/data"
         else:
-            dest = f"gs://{bucket}/{pipeline.name}/data"
+            dest = f"gs://{bucket}/{collector.name}/data"
     else:
         from ..project import find_project_root
-        if pipeline.namespace:
-            dest = str(find_project_root() / "warehouse" / pipeline.namespace / pipeline.name / "data")
+        if collector.namespace:
+            dest = str(find_project_root() / "warehouse" / collector.namespace / collector.name / "data")
         else:
-            dest = str(find_project_root() / "warehouse" / pipeline.name / "data")
+            dest = str(find_project_root() / "warehouse" / collector.name / "data")
 
     total = len(request_sequence)
     if failed == total:
-        print(f"\n[dcf] '{pipeline.name}' FAILED — all {total} iteration(s) errored → {dest}\n")
+        print(f"\n[dcf] '{collector.name}' FAILED — all {total} iteration(s) errored → {dest}\n")
     elif failed:
-        print(f"\n[dcf] '{pipeline.name}' complete with errors — {failed}/{total} iteration(s) failed → {dest}\n")
+        print(f"\n[dcf] '{collector.name}' complete with errors — {failed}/{total} iteration(s) failed → {dest}\n")
     else:
-        print(f"\n[dcf] '{pipeline.name}' complete → {dest}\n")
+        print(f"\n[dcf] '{collector.name}' complete → {dest}\n")
 
     if spark is not None:
         spark.stop()

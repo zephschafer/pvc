@@ -1,7 +1,7 @@
-"""Local Docker-based deployment for batch and streaming pipelines.
+"""Local Docker-based deployment for batch and streaming collectors.
 
-No GCP account required. Batch pipelines are built and scheduled via local
-Terraform modules (batch_pipeline_local + airflow_local). Streaming pipelines
+No GCP account required. Batch collectors are built and scheduled via local
+Terraform modules (batch_collector_local + airflow_local). Streaming collectors
 run a Kafka broker + local stream runner container.
 """
 
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 _DCF_PKG_DIR = Path(__file__).parent
 _DCF_REPO_ROOT = _DCF_PKG_DIR.parent
 
-_BATCH_PIPELINE_MODULE = _DCF_PKG_DIR / "infra" / "modules" / "batch_pipeline"
+_BATCH_COLLECTOR_MODULE = _DCF_PKG_DIR / "infra" / "modules" / "batch_collector"
 
 
 def _write_pyproject_toml(dest: Path) -> None:
@@ -81,13 +81,13 @@ def _tf_state_dir(project_root: Path) -> Path:
     return project_root / ".dcf" / "terraform"
 
 
-def _collect_env_vars(project_root: Path, pipeline_name: str) -> dict[str, str]:
-    """Scan pipeline YAML for {{ env.VAR }} references and return {VAR: value}."""
-    pipeline_path = project_root / "pipelines" / f"{pipeline_name}.yml"
-    if not pipeline_path.exists():
+def _collect_env_vars(project_root: Path, collector_name: str) -> dict[str, str]:
+    """Scan collector YAML for {{ env.VAR }} references and return {VAR: value}."""
+    collector_path = project_root / "collectors" / f"{collector_name}.yml"
+    if not collector_path.exists():
         return {}
 
-    raw_yaml = pipeline_path.read_text()
+    raw_yaml = collector_path.read_text()
     var_names = re.findall(r"\{\{\s*env\.(\w+)\s*\}\}", raw_yaml)
     if not var_names:
         return {}
@@ -102,7 +102,7 @@ def _collect_env_vars(project_root: Path, pipeline_name: str) -> dict[str, str]:
         value = os.environ.get(var) or project_cfg.get(var.lower())
         if not value:
             raise EnvironmentError(
-                f"Pipeline references '{{{{ env.{var} }}}}' but '{var}' is not set "
+                f"Collector references '{{{{ env.{var} }}}}' but '{var}' is not set "
                 f"in the host environment and '{var.lower()}' is not in project.yml"
             )
         result[var] = value
@@ -114,43 +114,43 @@ def _collect_env_vars(project_root: Path, pipeline_name: str) -> dict[str, str]:
 # ------------------------------------------------------------------ #
 
 def deploy(
-    pipeline_name: str,
+    collector_name: str,
     deployment,
     project_root: Path,
     subscription: str | None = None,
 ) -> dict:
-    """Build and start local Docker containers for a pipeline."""
+    """Build and start local Docker containers for a collector."""
     _check_docker()
     if deployment.type == "streaming":
         if subscription is None:
             raise ValueError("subscription is required for streaming local deploy")
-        return _deploy_streaming(pipeline_name, subscription, deployment.window_seconds, project_root)
+        return _deploy_streaming(collector_name, subscription, deployment.window_seconds, project_root)
     else:
-        return _deploy_batch(pipeline_name, deployment, project_root)
+        return _deploy_batch(collector_name, deployment, project_root)
 
 
-def undeploy(pipeline_name: str, deployment_state: dict, project_root: Path) -> None:
-    """Stop and remove all local Docker resources for this pipeline."""
+def undeploy(collector_name: str, deployment_state: dict, project_root: Path) -> None:
+    """Stop and remove all local Docker resources for this collector."""
     if deployment_state.get("type") == "streaming":
-        _undeploy_streaming(pipeline_name, deployment_state)
+        _undeploy_streaming(collector_name, deployment_state)
     else:
-        _undeploy_batch(pipeline_name, deployment_state, project_root)
+        _undeploy_batch(collector_name, deployment_state, project_root)
 
 
 def undeploy_all(deployments: dict, project_root: Path) -> None:
-    """Destroy all pipeline resources then tear down the shared Airflow stack."""
+    """Destroy all collector resources then tear down the shared Airflow stack."""
     for name, state in deployments.items():
         print(f"  Undeploying '{name}'...", flush=True)
         undeploy(name, state, project_root)
     _tf_destroy_airflow_local(project_root)
 
 
-def publish(pipeline_name: str, deployment_state: dict, message_json: str, count: int = 1) -> None:
-    """Publish a JSON message to the pipeline's local Kafka topic."""
+def publish(collector_name: str, deployment_state: dict, message_json: str, count: int = 1) -> None:
+    """Publish a JSON message to the collector's local Kafka topic."""
     from kafka import KafkaProducer
 
     bootstrap = deployment_state.get("kafka_external_bootstrap", "localhost:29092")
-    topic = deployment_state.get("kafka_topic", f"dcf-{pipeline_name}")
+    topic = deployment_state.get("kafka_topic", f"dcf-{collector_name}")
 
     producer = KafkaProducer(
         bootstrap_servers=bootstrap,
@@ -166,30 +166,30 @@ def publish(pipeline_name: str, deployment_state: dict, message_json: str, count
 # Batch — Terraform path                                               #
 # ------------------------------------------------------------------ #
 
-def _deploy_batch(pipeline_name: str, deployment, project_root: Path) -> dict:
-    image_tag = f"dcf-local/{pipeline_name}:latest"
+def _deploy_batch(collector_name: str, deployment, project_root: Path) -> dict:
+    image_tag = f"dcf-local/{collector_name}:latest"
     warehouse_path = project_root / "warehouse"
     warehouse_path.mkdir(exist_ok=True)
 
-    print(f"  Syncing build context for '{pipeline_name}'...", flush=True)
-    build_context = _sync_build_context(project_root, pipeline_name)
+    print(f"  Syncing build context for '{collector_name}'...", flush=True)
+    build_context = _sync_build_context(project_root, collector_name)
 
     content_hash = _content_hash(build_context)
 
-    print(f"  Applying Terraform (pipeline image)...", flush=True)
-    _tf_apply_local_pipeline(pipeline_name, build_context, image_tag, content_hash, project_root)
+    print(f"  Applying Terraform (collector image)...", flush=True)
+    _tf_apply_local_collector(collector_name, build_context, image_tag, content_hash, project_root)
 
     print(f"  Writing DAG file...", flush=True)
     _AIRFLOW_DAGS_DIR.mkdir(parents=True, exist_ok=True)
     dag_content = _local_dag_content(
-        pipeline_name=pipeline_name,
+        collector_name=collector_name,
         schedule=deployment.schedule,
         paused=getattr(deployment, "paused", False),
         image_tag=image_tag,
         warehouse_path=str(warehouse_path),
-        env_vars=_collect_env_vars(project_root, pipeline_name),
+        env_vars=_collect_env_vars(project_root, collector_name),
     )
-    _write_local_dag(pipeline_name, dag_content)
+    _write_local_dag(collector_name, dag_content)
 
     print(f"  Applying Terraform (Airflow stack)...", flush=True)
     credentials = _generate_airflow_credentials(project_root)
@@ -213,11 +213,11 @@ def _deploy_batch(pipeline_name: str, deployment, project_root: Path) -> dict:
     }
 
 
-def _undeploy_batch(pipeline_name: str, state: dict, project_root: Path) -> None:
-    print(f"  Destroying pipeline Terraform resources...", flush=True)
-    _tf_destroy_local_pipeline(pipeline_name, project_root)
+def _undeploy_batch(collector_name: str, state: dict, project_root: Path) -> None:
+    print(f"  Destroying collector Terraform resources...", flush=True)
+    _tf_destroy_local_collector(collector_name, project_root)
 
-    dag_file = _AIRFLOW_DAGS_DIR / f"{pipeline_name}.py"
+    dag_file = _AIRFLOW_DAGS_DIR / f"{collector_name}.py"
     if dag_file.exists():
         dag_file.unlink()
         print(f"  Removed DAG file: {dag_file}", flush=True)
@@ -227,16 +227,16 @@ def _undeploy_batch(pipeline_name: str, state: dict, project_root: Path) -> None
 # Build context helpers                                                #
 # ------------------------------------------------------------------ #
 
-def _sync_build_context(project_root: Path, pipeline_name: str) -> Path:
+def _sync_build_context(project_root: Path, collector_name: str) -> Path:
     """Create a stable build context dir at ~/.dcf/build/local/<name>/."""
-    build_context = _BUILD_DIR / "local" / pipeline_name
+    build_context = _BUILD_DIR / "local" / collector_name
     shutil.rmtree(build_context, ignore_errors=True)
     build_context.mkdir(parents=True)
 
     shutil.copytree(_DCF_PKG_DIR, build_context / "dcf")
     _write_pyproject_toml(build_context)
 
-    for subdir in ("pipelines", "connectors"):
+    for subdir in ("collectors", "connectors"):
         src = project_root / subdir
         dst = build_context / subdir
         if src.exists():
@@ -259,7 +259,7 @@ def _content_hash(build_context: Path) -> str:
 
 
 # ------------------------------------------------------------------ #
-# Terraform helpers — pipeline                                         #
+# Terraform helpers — collector                                        #
 # ------------------------------------------------------------------ #
 
 def _tf_env() -> dict:
@@ -293,21 +293,21 @@ def _copy_module_to_work_dir(module_dir: Path, work_dir: Path) -> None:
     shutil.copytree(templates_src, templates_dst)
 
 
-def _tf_apply_local_pipeline(
-    pipeline_name: str,
+def _tf_apply_local_collector(
+    collector_name: str,
     build_context: Path,
     image_tag: str,
     content_hash: str,
     project_root: Path,
 ) -> None:
-    work_dir = _tf_state_dir(project_root) / "pipelines" / pipeline_name / "local"
+    work_dir = _tf_state_dir(project_root) / "collectors" / collector_name / "local"
     work_dir.mkdir(parents=True, exist_ok=True)
     _TF_PLUGIN_CACHE.mkdir(parents=True, exist_ok=True)
 
-    _copy_module_to_work_dir(_BATCH_PIPELINE_MODULE / "local", work_dir)
+    _copy_module_to_work_dir(_BATCH_COLLECTOR_MODULE / "local", work_dir)
 
     tfvars = {
-        "pipeline_name": pipeline_name,
+        "collector_name": collector_name,
         "build_context": str(build_context),
         "image_tag": image_tag,
         "content_hash": content_hash,
@@ -320,8 +320,8 @@ def _tf_apply_local_pipeline(
     _tf_run(["terraform", "apply", "-auto-approve"], work_dir, env)
 
 
-def _tf_destroy_local_pipeline(pipeline_name: str, project_root: Path) -> None:
-    work_dir = _tf_state_dir(project_root) / "pipelines" / pipeline_name / "local"
+def _tf_destroy_local_collector(collector_name: str, project_root: Path) -> None:
+    work_dir = _tf_state_dir(project_root) / "collectors" / collector_name / "local"
     if not work_dir.exists():
         logger.warning("No Terraform state found at %s — skipping destroy", work_dir)
         return
@@ -354,7 +354,7 @@ def _tf_destroy_airflow_local(project_root: Path) -> None:
 # ------------------------------------------------------------------ #
 
 def _local_dag_content(
-    pipeline_name: str,
+    collector_name: str,
     schedule: str,
     paused: bool,
     image_tag: str,
@@ -362,7 +362,7 @@ def _local_dag_content(
     env_vars: dict[str, str] | None = None,
 ) -> str:
     paused_str = "True" if paused else "False"
-    environment = {"PIPELINE_NAME": pipeline_name, **(env_vars or {})}
+    environment = {"COLLECTOR_NAME": collector_name, **(env_vars or {})}
     return f"""\
 # Generated by dcf — do not edit manually
 from datetime import datetime
@@ -371,15 +371,15 @@ from airflow import DAG
 from airflow.providers.docker.operators.docker import DockerOperator
 
 with DAG(
-    dag_id="{pipeline_name}",
+    dag_id="{collector_name}",
     schedule_interval="{schedule}",
     start_date=datetime(2024, 1, 1),
     catchup=False,
     is_paused_upon_creation={paused_str},
     tags=["dcf"],
 ) as dag:
-    run_pipeline = DockerOperator(
-        task_id="run_{pipeline_name}",
+    run_collector = DockerOperator(
+        task_id="run_{collector_name}",
         image="{image_tag}",
         environment={environment!r},
         mounts=[Mount(target="/app/warehouse", source="{warehouse_path}", type="bind")],
@@ -389,9 +389,9 @@ with DAG(
 """
 
 
-def _write_local_dag(pipeline_name: str, dag_content: str) -> None:
+def _write_local_dag(collector_name: str, dag_content: str) -> None:
     _AIRFLOW_DAGS_DIR.mkdir(parents=True, exist_ok=True)
-    (_AIRFLOW_DAGS_DIR / f"{pipeline_name}.py").write_text(dag_content)
+    (_AIRFLOW_DAGS_DIR / f"{collector_name}.py").write_text(dag_content)
 
 
 # ------------------------------------------------------------------ #
@@ -450,7 +450,7 @@ def _tf_apply_airflow_local(dag_dir: str, warehouse_path: str, credentials: dict
     work_dir.mkdir(parents=True, exist_ok=True)
     _TF_PLUGIN_CACHE.mkdir(parents=True, exist_ok=True)
 
-    _copy_module_to_work_dir(_BATCH_PIPELINE_MODULE / "local" / "airflow", work_dir)
+    _copy_module_to_work_dir(_BATCH_COLLECTOR_MODULE / "local" / "airflow", work_dir)
 
     build_context = _airflow_build_context()
     content_hash = _airflow_content_hash()
@@ -500,16 +500,16 @@ def _network_name(name: str) -> str:
 
 
 def _deploy_streaming(
-    pipeline_name: str,
+    collector_name: str,
     subscription: str,
     window_seconds: int,
     project_root: Path,
 ) -> dict:
-    network = _network_name(pipeline_name)
-    kafka_cname = _kafka_container(pipeline_name)
-    runner_cname = _runner_container(pipeline_name)
-    image_tag = f"dcf-local/{pipeline_name}-stream:latest"
-    kafka_topic = f"dcf-{pipeline_name}"
+    network = _network_name(collector_name)
+    kafka_cname = _kafka_container(collector_name)
+    runner_cname = _runner_container(collector_name)
+    image_tag = f"dcf-local/{collector_name}-stream:latest"
+    kafka_topic = f"dcf-{collector_name}"
     warehouse_path = project_root / "warehouse"
     warehouse_path.mkdir(exist_ok=True)
 
@@ -521,7 +521,7 @@ def _deploy_streaming(
     subprocess.run(["docker", "network", "create", network], check=True, capture_output=True)
 
     print(f"  Starting Kafka broker (apache/kafka, KRaft)...", flush=True)
-    _start_kafka(kafka_cname, network, pipeline_name)
+    _start_kafka(kafka_cname, network, collector_name)
 
     print(f"  Waiting for Kafka to be ready...", flush=True)
     _wait_for_kafka("localhost:29092", timeout=30)
@@ -535,7 +535,7 @@ def _deploy_streaming(
 
     print(f"  Starting stream runner...", flush=True)
     _start_runner(
-        runner_cname, image_tag, network, pipeline_name,
+        runner_cname, image_tag, network, collector_name,
         kafka_cname, kafka_topic, window_seconds, warehouse_path,
         project_root=project_root,
     )
@@ -569,7 +569,7 @@ def _deploy_streaming(
     }
 
 
-def _start_kafka(container_name: str, network: str, pipeline_name: str) -> None:
+def _start_kafka(container_name: str, network: str, collector_name: str) -> None:
     subprocess.run(
         [
             "docker", "run", "-d",
@@ -624,7 +624,7 @@ def _wait_for_kafka(bootstrap: str, timeout: int = 30) -> None:
             time.sleep(2)
     raise RuntimeError(
         f"Kafka did not become available at {bootstrap} within {timeout}s.\n"
-        "Check: docker logs dcf-kafka-<pipeline>"
+        "Check: docker logs dcf-kafka-<collector>"
     )
 
 
@@ -650,7 +650,7 @@ def _build_stream_image(project_root: Path, image_tag: str) -> None:
         shutil.copytree(_DCF_PKG_DIR, tmp_path / "dcf")
         _write_pyproject_toml(tmp_path)
 
-        for subdir in ("pipelines", "connectors"):
+        for subdir in ("collectors", "connectors"):
             src = project_root / subdir
             if src.exists():
                 shutil.copytree(src, tmp_path / subdir)
@@ -665,7 +665,7 @@ def _build_stream_image(project_root: Path, image_tag: str) -> None:
             COPY pyproject.toml .
             COPY dcf/ ./dcf/
             RUN pip install --no-cache-dir -e . 'kafka-python>=2.0'
-            COPY pipelines/ ./pipelines/
+            COPY collectors/ ./collectors/
             COPY connectors/ ./connectors/
             COPY project.yml .
             ENTRYPOINT ["python", "-m", "dcf.local_stream_runner"]
@@ -680,14 +680,14 @@ def _start_runner(
     container_name: str,
     image_tag: str,
     network: str,
-    pipeline_name: str,
+    collector_name: str,
     kafka_cname: str,
     kafka_topic: str,
     window_seconds: int,
     warehouse_path: Path,
     project_root: Path | None = None,
 ) -> None:
-    env_dict = _collect_env_vars(project_root, pipeline_name) if project_root else {}
+    env_dict = _collect_env_vars(project_root, collector_name) if project_root else {}
     env_args = [arg for var, val in env_dict.items() for arg in ("-e", f"{var}={val}")]
     subprocess.run(
         [
@@ -697,21 +697,21 @@ def _start_runner(
             *env_args,
             "-v", f"{warehouse_path}:/warehouse",
             image_tag,
-            "--pipeline_name", pipeline_name,
+            "--collector_name", collector_name,
             "--bootstrap_servers", f"{kafka_cname}:9092",
             "--topic", kafka_topic,
-            "--output_path", f"/warehouse/{pipeline_name}/{pipeline_name}/data/",
+            "--output_path", f"/warehouse/{collector_name}/{collector_name}/data/",
             "--window_seconds", str(window_seconds),
         ],
         check=True, capture_output=True, text=True,
     )
 
 
-def _undeploy_streaming(pipeline_name: str, state: dict) -> None:
-    runner = state.get("runner_container", _runner_container(pipeline_name))
-    kafka = state.get("kafka_container", _kafka_container(pipeline_name))
-    network = state.get("docker_network", _network_name(pipeline_name))
-    image_tag = state.get("image_tag", f"dcf-local/{pipeline_name}-stream:latest")
+def _undeploy_streaming(collector_name: str, state: dict) -> None:
+    runner = state.get("runner_container", _runner_container(collector_name))
+    kafka = state.get("kafka_container", _kafka_container(collector_name))
+    network = state.get("docker_network", _network_name(collector_name))
+    image_tag = state.get("image_tag", f"dcf-local/{collector_name}-stream:latest")
 
     print(f"  Stopping stream runner '{runner}'...", flush=True)
     _stop_remove(runner)

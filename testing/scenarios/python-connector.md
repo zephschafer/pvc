@@ -12,7 +12,7 @@ This makes a Python connector unavoidable — there is no YAML workaround.
 
 **The core questions this scenario answers:**
 1. Does `type: python` actually work end-to-end? (import, call, yield)
-2. Does the `new-pipeline` skill know when to recommend a Python connector?
+2. Does the `new-collector` skill know when to recommend a Python connector?
 3. Does the skill know how to help a user write one?
 4. What is the expected function signature, yield pattern, and error contract?
 
@@ -72,7 +72,7 @@ Before writing any code, read dcf's existing documentation on Python connectors:
 
 1. Read `README.md` — does it document the `type: python` source? What is the
    expected connector function signature? What parameters does dcf pass?
-2. Read `.claude/commands/new-pipeline.md` — does the skill mention Python connectors?
+2. Read `.claude/commands/new-collector.md` — does the skill mention Python connectors?
    Does it explain when to use one or how to write one?
 3. Look at `dcf/engine/fetcher.py` — read the code for `type: python` source handling.
    What function name does dcf look for? What arguments does it call it with?
@@ -90,7 +90,7 @@ Write `connectors/linear_issues.py` using the interface discovered in Phase 1:
 1. Implement cursor-based pagination over Linear issues GraphQL query
 2. Extract: id, title, state_name (from state.name), priority (integer, 0-4),
    assignee_name (from assignee.name, nullable), created_at, updated_at
-3. Write the corresponding `pipelines/linear_issues.yml` with `type: python`
+3. Write the corresponding `collectors/linear_issues.yml` with `type: python`
 4. Run `dcf validate linear_issues`
 5. Run `dcf run linear_issues --limit 1`
 6. If it fails: diagnose carefully — is it a connector import error? A wrong function
@@ -100,14 +100,14 @@ Phase 2 success: connector imports and runs, returns rows from Linear.
 
 ### Phase 3 — Full Run and Quality Check
 
-1. Run full pipeline — all issues across all pages
+1. Run full collector — all issues across all pages
 2. Verify: `state_name` is a string ("In Progress", "Done", etc.)
 3. Verify: `priority` is an integer (0=No priority, 1=Urgent, 2=High, 3=Medium, 4=Low)
 4. Verify: `assignee_name` is nullable — unassigned issues have null assignee
 5. Incremental deduplication on `id` — stable across re-runs
 6. Query warehouse: count issues by state, count by assignee
 
-Phase 3 success: full pipeline produces correct, deduplicated data.
+Phase 3 success: full collector produces correct, deduplicated data.
 
 ## Success Criteria
 
@@ -137,14 +137,14 @@ Phase 3 success: full pipeline produces correct, deduplicated data.
 
 ## Known Expected Findings (Pre-identified)
 
-- **Expected Skill gap (Skill/UX):** The `new-pipeline` skill almost certainly does not
+- **Expected Skill gap (Skill/UX):** The `new-collector` skill almost certainly does not
   explain when to use a Python connector vs. HTTP YAML, nor does it explain how to write
   one. A first-time user would have no idea the option exists.
 - **Expected UX gap:** The connector function interface (name, signature, return type)
   is not documented anywhere visible to users. Reading source code is required to
   understand how to write a connector.
 - **To investigate:** Is the connector interface stable enough to document? Or does it
-  need redesign before documenting? (E.g., does dcf pass the pipeline params to the
+  need redesign before documenting? (E.g., does dcf pass the collector params to the
   connector function? Does it pass auth credentials? Or must the connector manage its
   own auth entirely?)
 - **Potentially Blocking:** If `type: python` has a runtime bug (import path wrong,

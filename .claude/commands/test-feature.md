@@ -1,10 +1,10 @@
-You are running a dcf feature test for a specific scenario. Your job is to act as a disciplined QA engineer who executes scenario phases precisely, records every failure, friction point, and gap, and — for data pipeline scenarios — also acts as a first-time dcf user attempting to build a real pipeline.
+You are running a dcf feature test for a specific scenario. Your job is to act as a disciplined QA engineer who executes scenario phases precisely, records every failure, friction point, and gap, and — for data collector scenarios — also acts as a first-time dcf user attempting to build a real collector.
 
 ## What You Are Testing
 
 dcf is a YAML-driven data ingestion framework and Claude plugin (CLI + skills + MCP server). Scenarios fall into two types:
 
-- **Pipeline scenarios** — test whether a user can build and run a working data pipeline against a real external API (e.g. `github-repos`, `stripe-payments`). The core question is whether dcf's YAML schema is expressive enough and the pipeline runs correctly end-to-end.
+- **Collector scenarios** — test whether a user can build and run a working data collector against a real external API (e.g. `github-repos`, `stripe-payments`). The core question is whether dcf's YAML schema is expressive enough and the collector runs correctly end-to-end.
 - **Feature scenarios** — test whether a new dcf feature (CLI command, infrastructure provisioning, config schema) works as designed (e.g. `batch-deployment`, `streaming-deployment`). The core question is whether the implemented feature meets its acceptance criteria.
 
 Determine the scenario type in Step 1. Steps 2 and 3 differ by type.
@@ -17,7 +17,7 @@ The scenario name is passed as an argument (e.g., `/test-feature github-repos`).
 
 ## Step 0: Set up the clean test environment
 
-Before reading the scenario, create an isolated project directory for this run. Every test starts from a fresh clone of quipu so that warehouse data, pipelines, and config from previous runs do not carry over.
+Before reading the scenario, create an isolated project directory for this run. Every test starts from a fresh clone of quipu so that warehouse data, collectors, and config from previous runs do not carry over.
 
 **a. Check for test_config.yml**
 
@@ -79,29 +79,29 @@ Read the scenario file at `testing/scenarios/<scenario-name>.md`. This defines:
 - Credentials required
 
 **Determine the scenario type** from the "Target API" or "Target Component" section:
-- If it names an **external API** (GitHub, Stripe, Jira, etc.) → **Pipeline scenario** — follow Steps 2 and 3 as written for pipeline scenarios.
+- If it names an **external API** (GitHub, Stripe, Jira, etc.) → **Collector scenario** — follow Steps 2 and 3 as written for collector scenarios.
 - If it names a **dcf CLI command, module, or infrastructure component** → **Feature scenario** — skip Step 2 (API probing) and follow the feature scenario path in Step 3.
 
 Also read:
 - `README.md` — the full dcf YAML schema reference
 - `testing/FINDINGS.md` — existing findings (so you don't re-report known issues)
 - Any prior runs for this scenario in `testing/runs/` (to build on prior work)
-- For pipeline scenarios: `.claude/commands/new-pipeline.md` — the skill you will simulate
+- For collector scenarios: `.claude/commands/new-collector.md` — the skill you will simulate
 
 ---
 
 ## Step 2: Investigate the target
 
-### Pipeline scenarios — Probe the API
+### Collector scenarios — Probe the API
 
-Before writing any pipeline, investigate the target API as a real user would:
+Before writing any collector, investigate the target API as a real user would:
 
 - Fetch the API documentation (web search or provided URL)
 - Make real HTTP requests to representative endpoints to see actual response shapes
 - Record: response structure, pagination mechanism, auth mechanism, array/nested fields, date field formats, rate limits
 - Note anything that seems hard to express in dcf's current YAML schema
 
-Do NOT skip this step for pipeline scenarios. Understanding the real API response is essential to accurate testing.
+Do NOT skip this step for collector scenarios. Understanding the real API response is essential to accurate testing.
 
 ### Feature scenarios — Review prerequisites
 
@@ -116,20 +116,20 @@ Before executing any phases, verify the prerequisites listed in the scenario:
 
 ## Step 3: Execute the scenario
 
-### Pipeline scenarios — Attempt Pipeline Creation
+### Collector scenarios — Attempt Collector Creation
 
-Proceed through the `new-pipeline` skill steps as if you are a first-time user who just installed dcf:
+Proceed through the `new-collector` skill steps as if you are a first-time user who just installed dcf:
 
 1. Choose source type: `http` or `python`
-2. Design the pipeline YAML (iterate axes, auth, params, schema, build strategy)
+2. Design the collector YAML (iterate axes, auth, params, schema, build strategy)
 3. If Python connector needed: design and write it
-4. Write the pipeline YAML
+4. Write the collector YAML
 5. Validate
 
 **Write files directly to the clone** — do not use MCP write tools (they target the live quipu):
 
 - Connector: write to `$CLONE/connectors/<name>.py`
-- Pipeline YAML: write to `$CLONE/pipelines/<name>.yml`
+- Collector YAML: write to `$CLONE/collectors/<name>.yml`
 
 **Validate using the CLI:**
 
@@ -158,7 +158,7 @@ Work through each phase defined in the scenario file in order. For each phase:
 
 ## Step 4: Iterative verification
 
-### Pipeline scenarios
+### Collector scenarios
 
 Run and iterate until either success or a blocking finding.
 
@@ -175,7 +175,7 @@ If it fails: diagnose the error. Distinguish between:
 **When `--limit 1` succeeds:**
 
 - Verify schema projection: check that all expected columns are present and typed correctly
-- Run full pipeline (or a reasonable subset via `--limit`):
+- Run full collector (or a reasonable subset via `--limit`):
 
 ```bash
 DCF_PROJECT_DIR=$CLONE uv --directory /Users/zephschafer/Documents/GitHub/dcf run dcf run <name>
@@ -233,8 +233,8 @@ Date: YYYY-MM-DD | Tester: Claude <model> | Scenario: <scenario-name>
   [→ Finding F-XXX: Minor / UX]
 
 ## Artifacts Produced
-<!-- For pipeline scenarios: -->
-See pipeline.yml in this directory. (copy the final YAML here if it worked)
+<!-- For collector scenarios: -->
+See collector.yml in this directory. (copy the final YAML here if it worked)
 <!-- For feature scenarios: -->
 <List GCP resources created, files modified, state written, etc.>
 
@@ -243,7 +243,7 @@ See pipeline.yml in this directory. (copy the final YAML here if it worked)
 ...
 ```
 
-**For pipeline scenarios:** copy `$CLONE/pipelines/<name>.yml` as `pipeline.yml` and `$CLONE/connectors/<name>.py` as `connector.py` if one was written.
+**For collector scenarios:** copy `$CLONE/collectors/<name>.yml` as `collector.yml` and `$CLONE/connectors/<name>.py` as `connector.py` if one was written.
 
 **For feature scenarios:** note any GCP resources created (environment names, job IDs) so the user can clean them up if needed.
 
@@ -287,7 +287,7 @@ Wait for the user to review and tell you which findings to fix, mark by-design, 
 
 **A finding is Blocking if:** the scenario cannot progress without a dcf code change or missing implementation.
 
-**A finding is a Skill finding if:** a dcf skill (`new-pipeline`, `new-feature`, `tech-design`, `implement-design`) gave wrong or missing guidance that caused the wrong path to be taken.
+**A finding is a Skill finding if:** a dcf skill (`new-collector`, `new-feature`, `tech-design`, `implement-design`) gave wrong or missing guidance that caused the wrong path to be taken.
 
 **A finding is a UX finding if:** an error message was cryptic, a CLI flag was confusing, or reading source code was required to understand what was happening.
 

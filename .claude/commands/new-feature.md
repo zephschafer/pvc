@@ -16,7 +16,7 @@ Based on what the user has told you, identify what you still need to know before
 
 Do not ask all questions at once if the user already answered some. Adapt to what they've said. The goal is to fill in these unknowns:
 
-- **Who is the primary user?** Developer setting up pipelines? Data analyst querying the warehouse? Operator managing infrastructure?
+- **Who is the primary user?** Developer setting up collectors? Data analyst querying the warehouse? Operator managing infrastructure?
 - **What problem does this solve?** What is currently broken, missing, or too painful to do? What is the workaround today?
 - **What does success look like?** How would you demonstrate this works — with a CLI run, a query, a config change?
 - **What is explicitly out of scope?** What would you NOT want this feature to do or touch?
@@ -30,8 +30,8 @@ Keep the conversation focused. If you can answer a question by reading the codeb
 
 Before drafting, read the relevant source files to understand constraints and existing patterns. Key locations:
 
-- `dcf/config/models.py` — YAML schema (Pipeline, Source, Auth, Build, Column types)
-- `dcf/engine/runner.py` — pipeline execution loop
+- `dcf/config/models.py` — YAML schema (Collector, Source, Auth, Build, Column types)
+- `dcf/engine/runner.py` — collector execution loop
 - `dcf/engine/fetcher.py` — HTTP and Python source fetch logic
 - `dcf/engine/iterator.py` — iterate axis expansion
 - `dcf/engine/projector.py` — schema projection

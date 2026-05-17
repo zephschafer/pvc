@@ -5,7 +5,7 @@ from pathlib import Path
 
 import yaml
 
-from .models import Pipeline
+from .models import Collector
 
 
 def _project_config() -> dict:
@@ -52,13 +52,13 @@ def _resolve_env_in(obj, project_cfg: dict):
     return obj
 
 
-def load_pipeline(path: Path, resolve_env: bool = True) -> Pipeline:
+def load_collector(path: Path, resolve_env: bool = True) -> Collector:
     raw = yaml.safe_load(path.read_text())
     if resolve_env:
         raw = _resolve_env_in(raw, _project_config())
     else:
         raw = _strip_env_placeholders(raw)
-    return Pipeline.from_dict(raw)
+    return Collector.from_dict(raw)
 
 
 def _strip_env_placeholders(obj):
@@ -73,5 +73,5 @@ def _strip_env_placeholders(obj):
     return obj
 
 
-def load_all_pipelines(pipelines_dir: Path, resolve_env: bool = True) -> list[Pipeline]:
-    return [load_pipeline(p, resolve_env=resolve_env) for p in sorted(pipelines_dir.glob("*.yml"))]
+def load_all_collectors(collectors_dir: Path, resolve_env: bool = True) -> list[Collector]:
+    return [load_collector(p, resolve_env=resolve_env) for p in sorted(collectors_dir.glob("*.yml"))]

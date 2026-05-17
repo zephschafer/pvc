@@ -11,7 +11,7 @@ import yaml
 
 app = typer.Typer(help="dcf", no_args_is_help=True)
 gcp_app = typer.Typer(help="GCP lake provisioning", no_args_is_help=True)
-mcp_app = typer.Typer(help="MCP server for AI-driven pipeline development", no_args_is_help=True)
+mcp_app = typer.Typer(help="MCP server for AI-driven collector development", no_args_is_help=True)
 app.add_typer(gcp_app, name="gcp")
 app.add_typer(mcp_app, name="mcp")
 
@@ -20,8 +20,8 @@ def _project_root() -> Path:
     return find_project_root()
 
 
-def _pipelines_dir() -> Path:
-    return _project_root() / "pipelines"
+def _collectors_dir() -> Path:
+    return _project_root() / "collectors"
 
 
 def _load_config() -> dict:
@@ -55,7 +55,7 @@ def init(
     typer.echo(f"Config saved to {_project_root() / 'project.yml'}")
     typer.echo("\nTo store API keys, add them to project.yml as plain keys:")
     typer.echo("  my_api_key: sk-xxxx")
-    typer.echo("Then reference them in pipeline YAML: value: \"{{ env.MY_API_KEY }}\"")
+    typer.echo("Then reference them in collector YAML: value: \"{{ env.MY_API_KEY }}\"")
     typer.echo("Or set them as environment variables before running.")
 
 
@@ -65,33 +65,33 @@ def init(
 
 @app.command()
 def run(
-    pipeline_name: str = typer.Argument(..., help="Pipeline name (without .yml) or 'all'"),
+    collector_name: str = typer.Argument(..., help="Collector name (without .yml) or 'all'"),
     start: str | None = typer.Option(None, help="Override backfill start date (YYYY-MM-DD)"),
     end: str | None = typer.Option(None, help="Override backfill end date (YYYY-MM-DD)"),
     limit: int | None = typer.Option(None, help="Run only the first N iterations"),
     param: list[str] = typer.Option([], help="Override a param value: key=value (repeatable)"),
 ):
-    """Run one or all pipelines."""
-    from .config import load_pipeline, load_all_pipelines
-    from .engine import run_pipeline
+    """Run one or all collectors."""
+    from .config import load_collector, load_all_collectors
+    from .engine import run_collector
 
     catalog = _get_catalog()
     param_overrides = _parse_params(param)
 
-    pipelines_dir = _pipelines_dir()
-    if pipeline_name == "all":
-        pipelines = load_all_pipelines(pipelines_dir)
+    collectors_dir = _collectors_dir()
+    if collector_name == "all":
+        collectors = load_all_collectors(collectors_dir)
     else:
-        path = pipelines_dir / f"{pipeline_name}.yml"
+        path = collectors_dir / f"{collector_name}.yml"
         if not path.exists():
-            typer.echo(f"Pipeline not found: {path}", err=True)
+            typer.echo(f"Collector not found: {path}", err=True)
             raise typer.Exit(1)
-        pipelines = [load_pipeline(path)]
+        collectors = [load_collector(path)]
 
-    for pipeline in pipelines:
+    for collector in collectors:
         if start or end:
-            _override_date_range(pipeline, start, end)
-        run_pipeline(pipeline, catalog=catalog, limit=limit, param_overrides=param_overrides)
+            _override_date_range(collector, start, end)
+        run_collector(collector, catalog=catalog, limit=limit, param_overrides=param_overrides)
 
 
 # ------------------------------------------------------------------ #
@@ -108,16 +108,16 @@ def _check_unset_env_refs(path: Path) -> list[str]:
 
 @app.command()
 def validate(
-    pipeline_name: str = typer.Argument(..., help="Pipeline name (without .yml) or 'all'"),
+    collector_name: str = typer.Argument(..., help="Collector name (without .yml) or 'all'"),
 ):
-    """Parse and validate pipeline YAML without running it."""
-    from .config import load_pipeline, load_all_pipelines
+    """Parse and validate collector YAML without running it."""
+    from .config import load_collector, load_all_collectors
 
-    pipelines_dir = _pipelines_dir()
-    if pipeline_name == "all":
-        pipelines = load_all_pipelines(pipelines_dir, resolve_env=False)
-        names = [p.name for p in pipelines]
-        for path in sorted(pipelines_dir.glob("*.yml")):
+    collectors_dir = _collectors_dir()
+    if collector_name == "all":
+        collectors = load_all_collectors(collectors_dir, resolve_env=False)
+        names = [c.name for c in collectors]
+        for path in sorted(collectors_dir.glob("*.yml")):
             unset = _check_unset_env_refs(path)
             if unset:
                 typer.echo(
@@ -125,22 +125,22 @@ def validate(
                     f"    Set them as environment variables or add to project.yml before running.",
                     err=True,
                 )
-        typer.echo(f"OK — {len(pipelines)} pipeline(s): {', '.join(names)}")
+        typer.echo(f"OK — {len(collectors)} collector(s): {', '.join(names)}")
     else:
-        path = pipelines_dir / f"{pipeline_name}.yml"
+        path = collectors_dir / f"{collector_name}.yml"
         if not path.exists():
-            typer.echo(f"Pipeline not found: {path}", err=True)
+            typer.echo(f"Collector not found: {path}", err=True)
             raise typer.Exit(1)
         try:
-            pipeline = load_pipeline(path, resolve_env=False)
+            collector = load_collector(path, resolve_env=False)
         except Exception as e:
             from pydantic import ValidationError
             if isinstance(e, ValidationError):
                 for err in e.errors():
                     loc = ".".join(str(x) for x in err["loc"])
-                    typer.echo(f"Validation error in '{pipeline_name}': {loc} — {err['msg']}", err=True)
+                    typer.echo(f"Validation error in '{collector_name}': {loc} — {err['msg']}", err=True)
             else:
-                typer.echo(f"Error loading '{pipeline_name}': {e}", err=True)
+                typer.echo(f"Error loading '{collector_name}': {e}", err=True)
             raise typer.Exit(1)
         unset = _check_unset_env_refs(path)
         if unset:
@@ -150,16 +150,16 @@ def validate(
                 err=True,
             )
         from .config.models import PubSubSource
-        if isinstance(pipeline.source, PubSubSource):
+        if isinstance(collector.source, PubSubSource):
             typer.echo(
-                f"OK — '{pipeline.name}' (streaming, "
-                f"subscription: {pipeline.source.subscription}, "
-                f"{len(pipeline.source.schema_.columns)} columns)"
+                f"OK — '{collector.name}' (streaming, "
+                f"subscription: {collector.source.subscription}, "
+                f"{len(collector.source.schema_.columns)} columns)"
             )
         else:
-            typer.echo(f"OK — '{pipeline.name}' ({len(pipeline.source.params)} params, "
-                       f"{len(pipeline.cadence.iterate)} cadence axes, "
-                       f"{len(pipeline.source.schema_.columns)} columns)")
+            typer.echo(f"OK — '{collector.name}' ({len(collector.source.params)} params, "
+                       f"{len(collector.cadence.iterate)} cadence axes, "
+                       f"{len(collector.source.schema_.columns)} columns)")
 
 
 # ------------------------------------------------------------------ #
@@ -408,37 +408,35 @@ def _require_gcp_config() -> tuple[dict, dict]:
 
 @app.command()
 def deploy(
-    pipeline_name: str | None = typer.Argument(None, help="Pipeline name (without .yml), or omit to deploy all"),
+    collector_name: str | None = typer.Argument(None, help="Collector name (without .yml), or omit to deploy all"),
 ):
-    """Deploy a pipeline locally (Docker + Airflow) or to GCP based on catalog in project.yml."""
-    from .config import load_pipeline
-
-    if pipeline_name is None:
+    """Deploy a collector locally (Docker + Airflow) or to GCP based on catalog in project.yml."""
+    if collector_name is None:
         _deploy_all()
         return
 
-    _deploy_one(pipeline_name)
+    _deploy_one(collector_name)
 
 
 def _deploy_all() -> None:
-    """Deploy every pipeline YAML that has a deployment: block."""
-    pipelines_dir = _pipelines_dir()
-    from .config import load_pipeline
+    """Deploy every collector YAML that has a deployment: block."""
+    collectors_dir = _collectors_dir()
+    from .config import load_collector
 
     candidates = []
-    for path in sorted(pipelines_dir.glob("*.yml")):
+    for path in sorted(collectors_dir.glob("*.yml")):
         try:
-            pipeline = load_pipeline(path, resolve_env=False)
-            if pipeline.deployment is not None:
+            collector = load_collector(path, resolve_env=False)
+            if collector.deployment is not None:
                 candidates.append(path.stem)
         except Exception:
             pass
 
     if not candidates:
-        typer.echo("No pipelines with a 'deployment:' block found in pipelines/.")
+        typer.echo("No collectors with a 'deployment:' block found in collectors/.")
         raise typer.Exit(0)
 
-    typer.echo(f"Deploying {len(candidates)} pipeline(s): {', '.join(candidates)}")
+    typer.echo(f"Deploying {len(candidates)} collector(s): {', '.join(candidates)}")
     failures = []
     for name in candidates:
         typer.echo(f"\n--- {name} ---")
@@ -455,28 +453,28 @@ def _deploy_all() -> None:
         raise typer.Exit(1)
 
 
-def _deploy_one(pipeline_name: str) -> None:
-    from .config import load_pipeline
+def _deploy_one(collector_name: str) -> None:
+    from .config import load_collector
     from .config.models import PubSubSource
 
-    path = _pipelines_dir() / f"{pipeline_name}.yml"
+    path = _collectors_dir() / f"{collector_name}.yml"
     if not path.exists():
-        typer.echo(f"Pipeline not found: {path}", err=True)
+        typer.echo(f"Collector not found: {path}", err=True)
         raise typer.Exit(1)
 
     try:
-        pipeline = load_pipeline(path, resolve_env=False)
+        collector = load_collector(path, resolve_env=False)
     except Exception as e:
-        typer.echo(f"Error loading pipeline: {e}", err=True)
+        typer.echo(f"Error loading collector: {e}", err=True)
         raise typer.Exit(1)
 
-    if pipeline.deployment is None:
+    if collector.deployment is None:
         typer.echo(
-            f"Error: '{pipeline_name}' has no 'deployment:' block in its pipeline YAML.\n"
-            "For a batch pipeline, add a deploy block with a schedule:\n\n"
+            f"Error: '{collector_name}' has no 'deployment:' block in its collector YAML.\n"
+            "For a batch collector, add a deploy block with a schedule:\n\n"
             "  deployment:\n"
             "    schedule: \"0 8 * * *\"\n\n"
-            "For a streaming pipeline (source.type: pubsub), add:\n\n"
+            "For a streaming collector (source.type: pubsub), add:\n\n"
             "  deployment:\n"
             "    type: streaming\n"
             "    window_seconds: 60\n",
@@ -485,41 +483,41 @@ def _deploy_one(pipeline_name: str) -> None:
         raise typer.Exit(1)
 
     catalog = _get_catalog()
-    deploy_type = pipeline.deployment.type
+    deploy_type = collector.deployment.type
 
     try:
         if catalog == "local":
             from . import local_deploy
             subscription = None
             if deploy_type == "streaming":
-                if not isinstance(pipeline.source, PubSubSource):
+                if not isinstance(collector.source, PubSubSource):
                     typer.echo(
                         "Error: deploy.type: streaming requires source.type: pubsub", err=True
                     )
                     raise typer.Exit(1)
-                subscription = pipeline.source.subscription
-                typer.echo(f"Deploying '{pipeline_name}' (local streaming, Kafka)...")
+                subscription = collector.source.subscription
+                typer.echo(f"Deploying '{collector_name}' (local streaming, Kafka)...")
             else:
-                typer.echo(f"Deploying '{pipeline_name}' (local batch, Terraform + Airflow)...")
+                typer.echo(f"Deploying '{collector_name}' (local batch, Terraform + Airflow)...")
 
             cfg = _load_config()
             state = local_deploy.deploy(
-                pipeline_name=pipeline_name,
-                deployment=pipeline.deployment,
+                collector_name=collector_name,
+                deployment=collector.deployment,
                 project_root=_project_root(),
                 subscription=subscription,
             )
-            cfg.setdefault("deployments", {})[pipeline_name] = state
+            cfg.setdefault("deployments", {})[collector_name] = state
             _save_config(cfg)
 
-            typer.echo(f"\nDeployed '{pipeline_name}' successfully.")
+            typer.echo(f"\nDeployed '{collector_name}' successfully.")
             if deploy_type == "streaming":
                 typer.echo(f"  Type:         streaming (local Docker + Kafka)")
                 typer.echo(f"  Kafka:        {state['kafka_container']}  ({state['kafka_external_bootstrap']})")
                 typer.echo(f"  Runner:       {state['runner_container']}")
                 typer.echo(f"  Warehouse:    {state['warehouse_path']}")
                 typer.echo(f"  Window:       {state['window_seconds']}s")
-                typer.echo(f"  To publish:   dcf publish {pipeline_name} '{{\"field\": \"value\"}}'")
+                typer.echo(f"  To publish:   dcf publish {collector_name} '{{\"field\": \"value\"}}'")
             else:
                 typer.echo(f"  Type:         batch (local Terraform)")
                 typer.echo(f"  Image:        {state['image_tag']}")
@@ -530,25 +528,25 @@ def _deploy_one(pipeline_name: str) -> None:
         cfg, gcp = _require_gcp_config()
         if deploy_type == "streaming":
             from .gcp import streaming_deploy
-            assert isinstance(pipeline.source, PubSubSource)
+            assert isinstance(collector.source, PubSubSource)
             typer.echo(
-                f"Deploying '{pipeline_name}' (streaming, "
-                f"subscription: {pipeline.source.subscription})..."
+                f"Deploying '{collector_name}' (streaming, "
+                f"subscription: {collector.source.subscription})..."
             )
             state = streaming_deploy.deploy(
-                pipeline_name=pipeline_name,
-                subscription=pipeline.source.subscription,
-                window_seconds=pipeline.deployment.window_seconds,
+                collector_name=collector_name,
+                subscription=collector.source.subscription,
+                window_seconds=collector.deployment.window_seconds,
                 project_root=_project_root(),
                 gcp_config=gcp,
             )
         else:
             from .gcp import batch_deploy
-            typer.echo(f"Deploying '{pipeline_name}' (schedule: {pipeline.deployment.schedule})...")
+            typer.echo(f"Deploying '{collector_name}' (schedule: {collector.deployment.schedule})...")
             state = batch_deploy.deploy(
-                pipeline_name=pipeline_name,
-                schedule=pipeline.deployment.schedule,
-                paused=pipeline.deployment.paused,
+                collector_name=collector_name,
+                schedule=collector.deployment.schedule,
+                paused=collector.deployment.paused,
                 project_root=_project_root(),
                 gcp_config=gcp,
             )
@@ -558,10 +556,10 @@ def _deploy_one(pipeline_name: str) -> None:
         typer.echo(f"\nDeploy failed: {e}", err=True)
         raise typer.Exit(1)
 
-    cfg.setdefault("deployments", {})[pipeline_name] = state
+    cfg.setdefault("deployments", {})[collector_name] = state
     _save_config(cfg)
 
-    typer.echo(f"\nDeployed '{pipeline_name}' successfully.")
+    typer.echo(f"\nDeployed '{collector_name}' successfully.")
     if deploy_type == "streaming":
         typer.echo(f"  Type:         streaming (GCP Dataflow)")
         typer.echo(f"  Dataflow job: {state['dataflow_job_name']}")
@@ -577,24 +575,24 @@ def _deploy_one(pipeline_name: str) -> None:
 
 @app.command()
 def undeploy(
-    pipeline_name: str | None = typer.Argument(None, help="Pipeline name (without .yml). Omit to undeploy everything."),
+    collector_name: str | None = typer.Argument(None, help="Collector name (without .yml). Omit to undeploy everything."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
 ):
-    """Stop and remove deployed pipeline(s) (warehouse data is untouched).
+    """Stop and remove deployed collector(s) (warehouse data is untouched).
 
-    Omit PIPELINE_NAME to destroy all deployments including the Airflow stack.
+    Omit COLLECTOR_NAME to destroy all deployments including the Airflow stack.
     """
     cfg = _load_config()
     deployments = cfg.get("deployments", {})
 
-    if pipeline_name is None:
+    if collector_name is None:
         # Undeploy everything
         if not deployments:
             typer.echo("Nothing to undeploy.")
             return
         if not yes:
             typer.confirm(
-                f"Destroy all {len(deployments)} pipeline(s) and the Airflow stack? "
+                f"Destroy all {len(deployments)} collector(s) and the Airflow stack? "
                 "(warehouse data will NOT be deleted)",
                 abort=True,
             )
@@ -606,18 +604,18 @@ def undeploy(
             raise typer.Exit(1)
         cfg.pop("deployments", None)
         _save_config(cfg)
-        typer.echo("All pipelines undeployed. Warehouse data is untouched.")
+        typer.echo("All collectors undeployed. Warehouse data is untouched.")
         return
 
-    if pipeline_name not in deployments:
+    if collector_name not in deployments:
         typer.echo(
-            f"Error: '{pipeline_name}' is not in project.yml deployments. "
+            f"Error: '{collector_name}' is not in project.yml deployments. "
             "Nothing to undeploy.",
             err=True,
         )
         raise typer.Exit(1)
 
-    deployment = deployments[pipeline_name]
+    deployment = deployments[collector_name]
     deploy_type = deployment.get("type", "batch")
     is_local = "kafka_container" in deployment or (
         "image_tag" in deployment and "dag_id" not in deployment
@@ -627,39 +625,39 @@ def undeploy(
         if is_local:
             if deploy_type == "streaming":
                 typer.confirm(
-                    f"Stop and remove local Docker containers for '{pipeline_name}'? "
+                    f"Stop and remove local Docker containers for '{collector_name}'? "
                     "(warehouse data will NOT be deleted)",
                     abort=True,
                 )
             else:
                 typer.confirm(
-                    f"Remove local Docker image for '{pipeline_name}'? "
+                    f"Remove local Docker image for '{collector_name}'? "
                     "(warehouse data will NOT be deleted)",
                     abort=True,
                 )
         elif deploy_type == "streaming":
             typer.confirm(
-                f"Drain and remove Dataflow job '{deployment.get('dataflow_job_name', pipeline_name)}'? "
+                f"Drain and remove Dataflow job '{deployment.get('dataflow_job_name', collector_name)}'? "
                 "(warehouse data will NOT be deleted)",
                 abort=True,
             )
         else:
             typer.confirm(
-                f"Remove pipeline '{pipeline_name}' deployment and stop its scheduling? "
+                f"Remove collector '{collector_name}' deployment and stop its scheduling? "
                 "(warehouse data will NOT be deleted)",
                 abort=True,
             )
 
-    typer.echo(f"Undeploying '{pipeline_name}'...")
+    typer.echo(f"Undeploying '{collector_name}'...")
     try:
         if is_local:
             from . import local_deploy
-            local_deploy.undeploy(pipeline_name, deployment, _project_root())
+            local_deploy.undeploy(collector_name, deployment, _project_root())
         elif deploy_type == "streaming":
             _, gcp = _require_gcp_config()
             from .gcp import streaming_deploy
             streaming_deploy.undeploy(
-                pipeline_name=pipeline_name,
+                collector_name=collector_name,
                 deployment=deployment,
                 gcp_config=gcp,
             )
@@ -667,7 +665,7 @@ def undeploy(
             _, gcp = _require_gcp_config()
             from .gcp import batch_deploy
             batch_deploy.undeploy(
-                pipeline_name=pipeline_name,
+                collector_name=collector_name,
                 deployment=deployment,
                 gcp_config=gcp,
                 project_root=_project_root(),
@@ -676,30 +674,30 @@ def undeploy(
         typer.echo(f"\nUndeploy failed: {e}", err=True)
         raise typer.Exit(1)
 
-    del cfg["deployments"][pipeline_name]
+    del cfg["deployments"][collector_name]
     if not cfg["deployments"]:
         del cfg["deployments"]
     _save_config(cfg)
 
-    typer.echo(f"'{pipeline_name}' undeployed. Warehouse data is untouched.")
+    typer.echo(f"'{collector_name}' undeployed. Warehouse data is untouched.")
 
 
 @app.command(name="deploy-status")
 def deploy_status(
-    pipeline_name: str | None = typer.Argument(None, help="Pipeline name, or omit for all"),
+    collector_name: str | None = typer.Argument(None, help="Collector name, or omit for all"),
 ):
-    """Show deployment state for one or all pipelines."""
+    """Show deployment state for one or all collectors."""
     cfg = _load_config()
     deployments = cfg.get("deployments", {})
 
     if not deployments:
-        typer.echo("No pipelines are currently deployed.")
+        typer.echo("No collectors are currently deployed.")
         return
 
-    targets = {pipeline_name: deployments[pipeline_name]} if pipeline_name else deployments
+    targets = {collector_name: deployments[collector_name]} if collector_name else deployments
 
-    if pipeline_name and pipeline_name not in deployments:
-        typer.echo(f"'{pipeline_name}' is not deployed.", err=True)
+    if collector_name and collector_name not in deployments:
+        typer.echo(f"'{collector_name}' is not deployed.", err=True)
         raise typer.Exit(1)
 
     for name, state in targets.items():
@@ -730,32 +728,32 @@ def deploy_status(
 
 @app.command()
 def publish(
-    pipeline_name: str = typer.Argument(..., help="Pipeline name"),
+    collector_name: str = typer.Argument(..., help="Collector name"),
     message: str = typer.Argument(..., help="JSON message body to publish"),
     count: int = typer.Option(1, "--count", "-n", help="Number of times to publish the message"),
 ):
-    """Publish a JSON message to the local Kafka topic for a deployed streaming pipeline."""
+    """Publish a JSON message to the local Kafka topic for a deployed streaming collector."""
     import json
 
     cfg = _load_config()
-    state = cfg.get("deployments", {}).get(pipeline_name)
+    state = cfg.get("deployments", {}).get(collector_name)
     if not state:
         typer.echo(
-            f"Error: '{pipeline_name}' is not deployed. Run: dcf deploy {pipeline_name}",
+            f"Error: '{collector_name}' is not deployed. Run: dcf deploy {collector_name}",
             err=True,
         )
         raise typer.Exit(1)
 
     if state.get("type") != "streaming":
         typer.echo(
-            f"Error: '{pipeline_name}' is a batch deployment. dcf publish only works for streaming.",
+            f"Error: '{collector_name}' is a batch deployment. dcf publish only works for streaming.",
             err=True,
         )
         raise typer.Exit(1)
 
     if "kafka_topic" not in state:
         typer.echo(
-            f"Error: '{pipeline_name}' is deployed on GCP, not locally. "
+            f"Error: '{collector_name}' is deployed on GCP, not locally. "
             "Use gcloud pubsub topics publish to inject messages.",
             err=True,
         )
@@ -768,7 +766,7 @@ def publish(
         raise typer.Exit(1)
 
     from . import local_deploy
-    local_deploy.publish(pipeline_name, state, message, count)
+    local_deploy.publish(collector_name, state, message, count)
 
     noun = "message" if count == 1 else "messages"
     typer.echo(f"Published {count} {noun} to topic '{state['kafka_topic']}'.")
@@ -833,9 +831,9 @@ def _parse_params(raw: list[str]) -> dict:
     return result
 
 
-def _override_date_range(pipeline, start: str | None, end: str | None) -> None:
+def _override_date_range(collector, start: str | None, end: str | None) -> None:
     from .config.models import DateRangeIterate
-    for spec in pipeline.cadence.iterate:
+    for spec in collector.cadence.iterate:
         if isinstance(spec, DateRangeIterate):
             if start:
                 spec.start = start

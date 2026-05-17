@@ -22,7 +22,7 @@ provider "google" {
 }
 
 resource "local_file" "dockerfile" {
-  content  = templatefile("${path.module}/templates/batch_pipeline.Dockerfile.tftpl", {
+  content  = templatefile("${path.module}/templates/batch_collector.Dockerfile.tftpl", {
     java_enabled = var.java_enabled
   })
   filename = "${var.build_context}/Dockerfile"
@@ -40,10 +40,10 @@ resource "null_resource" "build" {
   }
 }
 
-resource "google_cloud_run_v2_job" "pipeline" {
+resource "google_cloud_run_v2_job" "collector" {
   depends_on = [null_resource.build]
 
-  name     = "dcf-job-${replace(var.pipeline_name, "_", "-")}"
+  name     = "dcf-job-${replace(var.collector_name, "_", "-")}"
   location = var.region
 
   template {
@@ -55,8 +55,8 @@ resource "google_cloud_run_v2_job" "pipeline" {
         image = var.image_uri
 
         env {
-          name  = "PIPELINE_NAME"
-          value = var.pipeline_name
+          name  = "COLLECTOR_NAME"
+          value = var.collector_name
         }
 
         resources {

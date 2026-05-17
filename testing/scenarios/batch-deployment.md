@@ -1,8 +1,8 @@
-# Scenario: Batch Pipeline Deployment
+# Scenario: Batch Collector Deployment
 
 ## Goal
 
-Test the full batch deployment lifecycle: a pipeline YAML with a `deployment:` block is
+Test the full batch deployment lifecycle: a collector YAML with a `deployment:` block is
 validated, deployed to GCP via `dcf deploy`, scheduled in Cloud Composer (Airflow),
 executed automatically, and the results land in the GCS warehouse. Then verify that
 re-deploying is idempotent and `dcf undeploy` cleans up without touching data.
@@ -12,24 +12,24 @@ re-deploying is idempotent and `dcf undeploy` cleans up without touching data.
 findings that drive development of the `batch-deployment` feature.
 
 **The core questions this scenario answers:**
-1. Does `dcf validate` accept and check a `deployment:` block in the pipeline YAML?
-2. Does `dcf deploy` provision a Cloud Composer DAG and Cloud Run job from the pipeline YAML?
-3. Does the deployed DAG execute the pipeline on schedule and write to GCS?
+1. Does `dcf validate` accept and check a `deployment:` block in the collector YAML?
+2. Does `dcf deploy` provision a Cloud Composer DAG and Cloud Run job from the collector YAML?
+3. Does the deployed DAG execute the collector on schedule and write to GCS?
 4. Is re-deploying idempotent — no duplicate DAGs?
 5. Does `dcf undeploy` cleanly remove the job without touching warehouse data?
 
 ## Target Component
 
 This scenario tests dcf's own CLI and GCP provisioning layer — not an external API.
-The pipeline used as the test vehicle is `github_repos` (Apache org, public repos, no
+The collector used as the test vehicle is `github_repos` (Apache org, public repos, no
 auth required), which keeps data fetching simple and isolates any failures to the
 deployment infrastructure.
 
 ## Test Phases
 
-### Phase 1 — Pipeline YAML with `deployment:` block
+### Phase 1 — Collector YAML with `deployment:` block
 
-1. Add a `deployment:` block to `pipelines/github_repos.yml` in the test clone:
+1. Add a `deployment:` block to `collectors/github_repos.yml` in the test clone:
    ```yaml
    deploy:
      schedule: "0 8 * * *"
@@ -37,7 +37,7 @@ deployment infrastructure.
 2. Run `dcf validate github_repos` — does it accept the `deployment:` block without error?
 3. Verify the schedule is checked: set `schedule: "not a cron"` and confirm validate
    rejects it with a clear error message, then restore the valid schedule.
-4. Check that `dcf validate` on a pipeline without a `deployment:` block is unaffected
+4. Check that `dcf validate` on a collector without a `deployment:` block is unaffected
    (no regression).
 
 Phase 1 success: `dcf validate github_repos` passes with the `deployment:` block present
@@ -60,13 +60,13 @@ and rejects an invalid cron expression with an actionable error.
 4. Check `project.yml` — was `deployments.github_repos` written with `schedule`,
    `dag_id`, and `cloud_run_job`?
 5. **Verify Terraform state** — confirm resources were provisioned via the
-   `batch_pipeline` Terraform module, not raw gcloud calls:
+   `batch_collector` Terraform module, not raw gcloud calls:
    ```bash
-   ls ~/.dcf/terraform/pipelines/github_repos/
+   ls ~/.dcf/terraform/collectors/github_repos/
    # Expected: main.tf  outputs.tf  terraform.tfstate  terraform.tfvars.json  variables.tf
-   terraform -chdir=~/.dcf/terraform/pipelines/github_repos show
+   terraform -chdir=~/.dcf/terraform/collectors/github_repos show
    # Expected output contains:
-   #   google_cloud_run_v2_job.pipeline
+   #   google_cloud_run_v2_job.collector
    #   google_storage_bucket_object.dag
    ```
 6. Confirm the Terraform state records the correct resource IDs — the Cloud Run job
@@ -74,7 +74,7 @@ and rejects an invalid cron expression with an actionable error.
 
 Phase 2 success: `dcf deploy github_repos` completes, the DAG appears in Composer,
 the Cloud Run job exists, `project.yml` records the deployment state, and Terraform
-state at `~/.dcf/terraform/pipelines/github_repos/` contains both provisioned resources.
+state at `~/.dcf/terraform/collectors/github_repos/` contains both provisioned resources.
 
 ### Phase 3 — DAG execution and data verification
 
@@ -98,17 +98,17 @@ returns rows.
 
 ### Phase 4 — Idempotency and teardown
 
-1. Run `dcf deploy github_repos` a second time — same pipeline YAML, no changes.
+1. Run `dcf deploy github_repos` a second time — same collector YAML, no changes.
 2. Confirm no duplicate DAG was created:
    `gcloud composer environments run <env> --location us-central1 dags list | grep github_repos`
    (should appear exactly once)
 3. Confirm the Terraform state directory still exists and still shows exactly two
-   managed resources (no duplicates): `terraform -chdir=~/.dcf/terraform/pipelines/github_repos show`
+   managed resources (no duplicates): `terraform -chdir=~/.dcf/terraform/collectors/github_repos show`
 4. Run `dcf undeploy github_repos`.
 5. Confirm the DAG is removed from Composer and the Cloud Run job is gone.
 6. **Verify Terraform state directory was removed** by `dcf undeploy`:
    ```bash
-   ls ~/.dcf/terraform/pipelines/github_repos/
+   ls ~/.dcf/terraform/collectors/github_repos/
    # Expected: No such file or directory
    ```
 7. Confirm warehouse data is NOT deleted — GCS files remain:
@@ -123,15 +123,15 @@ touching warehouse data.
 
 - [ ] Phase 1: `dcf validate github_repos` accepts a `deploy: { schedule: "0 8 * * *" }` block
 - [ ] Phase 1: `dcf validate` rejects an invalid cron expression with a clear error message
-- [ ] Phase 1: `dcf validate` on a pipeline without `deploy:` is unaffected (no regression)
+- [ ] Phase 1: `dcf validate` on a collector without `deploy:` is unaffected (no regression)
 - [ ] Phase 2: `dcf deploy github_repos` completes without error
 - [ ] Phase 2: Cloud Composer DAG named `github_repos` is visible after deploy
-- [ ] Phase 2: Cloud Run job for the pipeline exists after deploy
+- [ ] Phase 2: Cloud Run job for the collector exists after deploy
 - [ ] Phase 2: `project.yml` records `deployments.github_repos` with schedule, dag_id, cloud_run_job
-- [ ] Phase 2: `dcf deploy` on a pipeline with no `deployment:` block exits with a clear error
+- [ ] Phase 2: `dcf deploy` on a collector with no `deployment:` block exits with a clear error
 - [ ] Phase 2: `dcf deploy` without `catalog: gcp` in `project.yml` exits with a clear error
-- [ ] Phase 2: Terraform state exists at `~/.dcf/terraform/pipelines/github_repos/terraform.tfstate`
-- [ ] Phase 2: `terraform show` lists `google_cloud_run_v2_job.pipeline` and `google_storage_bucket_object.dag`
+- [ ] Phase 2: Terraform state exists at `~/.dcf/terraform/collectors/github_repos/terraform.tfstate`
+- [ ] Phase 2: `terraform show` lists `google_cloud_run_v2_job.collector` and `google_storage_bucket_object.dag`
 - [ ] Phase 3: DAG run completes successfully (no Airflow task failures)
 - [ ] Phase 3: Parquet files appear in `gs://<warehouse-bucket>/github_repos/github_repos/data/`
 - [ ] Phase 3: Warehouse query returns rows (data is correct and readable)
@@ -148,7 +148,7 @@ touching warehouse data.
   reuse it and are much faster.
 - **Container image:** The Cloud Run job image is built via Cloud Build and pushed to
   Artifact Registry. dcf source is vendored into the build context alongside the user's
-  `pipelines/` and `connectors/` directories. A minimal `project.yml` (no secrets) is
+  `collectors/` and `connectors/` directories. A minimal `project.yml` (no secrets) is
   generated; GCP auth in the container comes from the service account attached to the job.
 - **IAM propagation:** After `dcf deploy` creates any new service account bindings,
   wait 60 seconds before triggering the DAG — IAM changes can take time to propagate.
@@ -175,7 +175,7 @@ ongoing runs:
 - **Composer provisioning time:** If no Composer environment exists, provisioning takes
   20–30 minutes. The deploy command prints progress every 30 seconds.
 - **`dcf undeploy` requires local Terraform state:** If the state directory
-  `~/.dcf/terraform/pipelines/<name>/` is absent (different machine, state deleted),
+  `~/.dcf/terraform/collectors/<name>/` is absent (different machine, state deleted),
   `dcf undeploy` will fail with a clear error pointing to the manual gcloud command.
 
 ## Credentials Required
@@ -205,7 +205,7 @@ Note this in `test_config.yml.example` as a GCP prerequisite comment, not a new 
 - This scenario tests **unimplemented feature code**. Expect Phase 1 and Phase 2
   to produce Blocking findings on the first run. Document them and stop — do not
   attempt to work around missing CLI commands or schema by writing custom Python.
-- Use `github_repos` as the test pipeline — it is simple (no auth, flat JSON, one
+- Use `github_repos` as the test collector — it is simple (no auth, flat JSON, one
   iterate axis), which isolates failures to the deployment layer.
 - The CLONE for this scenario should have `catalog: gcp`, a valid `gcp.warehouse_bucket`,
   and `gcp.setup_status: complete` in `project.yml` (same config as the `gcp-data-lake`

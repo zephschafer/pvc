@@ -33,10 +33,10 @@ There's no formal test suite yet. Use the manual workflow:
 uv run dcf validate all
 
 # Run a single iteration cheaply
-uv run dcf run <pipeline_name> --limit 1
+uv run dcf run <collector_name> --limit 1
 
 # Full run
-uv run dcf run <pipeline_name>
+uv run dcf run <collector_name>
 
 # Verify output with DuckDB
 python -c "
@@ -59,7 +59,7 @@ When writing new logic, keep it in pure functions where possible — that'll mak
 dcf/
 ├── cli.py              CLI entry point (Typer)
 ├── config/
-│   ├── models.py       Pydantic models for pipeline YAML
+│   ├── models.py       Pydantic models for collector YAML
 │   └── loader.py       YAML loading + env var resolution
 ├── engine/
 │   ├── runner.py       Outer loop (iterate → fetch → project → write)

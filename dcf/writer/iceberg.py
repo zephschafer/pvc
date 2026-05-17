@@ -8,7 +8,7 @@ from pathlib import Path
 import pandas as pd
 import pytz
 
-from ..config.models import Pipeline, StagingConfig, MergeConfig
+from ..config.models import Collector, StagingConfig, MergeConfig
 
 
 def _gcs_warehouse_bucket() -> str:
@@ -42,14 +42,14 @@ def _ensure_namespace(spark, catalog: str, namespace: str) -> None:
 
 def write(
     spark,
-    pipeline: Pipeline,
+    collector: Collector,
     df: pd.DataFrame,
     catalog: str = "local",
     dynamic_params: dict | None = None,
 ) -> None:
     """
     Write a projected DataFrame to the Iceberg warehouse according to
-    the pipeline's build strategy.
+    the collector's build strategy.
     """
     if df.empty:
         return
@@ -57,36 +57,36 @@ def write(
     df = df.copy()
     df["dcf_updated_at"] = _pst_now()
 
-    catalog_namespace = pipeline.namespace or pipeline.name  # Spark catalog always needs a namespace
-    build = pipeline.cadence
+    catalog_namespace = collector.namespace or collector.name  # Spark catalog always needs a namespace
+    build = collector.cadence
 
     # GCS: use google-cloud-storage + PyArrow directly for all strategies — no Spark catalog needed
     if catalog == "gcp":
         warehouse_bucket = _gcs_warehouse_bucket()
         if build.strategy == "incremental":
-            _upsert_gcs(df, warehouse_bucket, pipeline.namespace, pipeline.name, build.primary_key)
+            _upsert_gcs(df, warehouse_bucket, collector.namespace, collector.name, build.primary_key)
         elif build.strategy == "append":
-            _append_gcs(df, warehouse_bucket, pipeline.namespace, pipeline.name)
+            _append_gcs(df, warehouse_bucket, collector.namespace, collector.name)
         elif build.strategy == "full_refresh":
-            _overwrite_gcs(df, warehouse_bucket, pipeline.namespace, pipeline.name)
+            _overwrite_gcs(df, warehouse_bucket, collector.namespace, collector.name)
         return
 
     _ensure_namespace(spark, catalog, catalog_namespace)
 
     if build.staging:
-        _write_staged(spark, pipeline, df, catalog, catalog_namespace, build.staging, build.merge, dynamic_params or {})
+        _write_staged(spark, collector, df, catalog, catalog_namespace, build.staging, build.merge, dynamic_params or {})
     elif build.strategy == "incremental":
         warehouse_root = Path(spark.conf.get(f"spark.sql.catalog.{catalog}.warehouse"))
-        _upsert(df, warehouse_root, pipeline.namespace, pipeline.name, build.primary_key)
+        _upsert(df, warehouse_root, collector.namespace, collector.name, build.primary_key)
     elif build.strategy == "append":
-        _append(spark, df, f"{catalog}.{catalog_namespace}.{pipeline.name}")
+        _append(spark, df, f"{catalog}.{catalog_namespace}.{collector.name}")
     elif build.strategy == "full_refresh":
-        _overwrite(spark, df, f"{catalog}.{catalog_namespace}.{pipeline.name}")
+        _overwrite(spark, df, f"{catalog}.{catalog_namespace}.{collector.name}")
 
 
 def _write_staged(
     spark,
-    pipeline: Pipeline,
+    collector: Collector,
     df: pd.DataFrame,
     catalog: str,
     namespace: str,
@@ -98,10 +98,10 @@ def _write_staged(
     table_name = staging.table_pattern.format(**{staging.partition_param: param_value})
 
     warehouse_root = Path(spark.conf.get(f"spark.sql.catalog.{catalog}.warehouse"))
-    _upsert(df, warehouse_root, namespace, table_name, pipeline.cadence.primary_key)
+    _upsert(df, warehouse_root, namespace, table_name, collector.cadence.primary_key)
 
     if merge_cfg:
-        _rebuild_merged(spark, catalog, namespace, staging, merge_cfg, pipeline.cadence.primary_key)
+        _rebuild_merged(spark, catalog, namespace, staging, merge_cfg, collector.cadence.primary_key)
 
 
 def _upsert(df: pd.DataFrame, warehouse_root: Path, namespace: str | None, table_name: str, primary_key: str | None) -> None:

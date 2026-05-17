@@ -2,7 +2,7 @@
 
 ## Goal
 
-Test the full local batch deployment lifecycle: a pipeline YAML with a `deploy: type: batch`
+Test the full local batch deployment lifecycle: a collector YAML with a `deploy: type: batch`
 block is built into a Docker image on the local machine, run once as a container to verify
 end-to-end execution, and then cleanly removed via `dcf undeploy`. No GCP account, no Cloud
 Build, no Terraform — only Docker.
@@ -12,15 +12,15 @@ Build, no Terraform — only Docker.
 2. Does the container correctly execute `dcf run` and write Parquet to the mounted warehouse?
 3. Is re-deploying idempotent (layer-cached rebuild + re-run)?
 4. Does `dcf undeploy` remove the image cleanly?
-5. Are env vars referenced in the pipeline YAML (`{{ env.GH_PAT }}`) available inside the container?
+5. Are env vars referenced in the collector YAML (`{{ env.GH_PAT }}`) available inside the container?
 
 ## Target Component
 
-This scenario tests dcf's local Docker deployment path (`dcf/local_deploy.py`). The pipeline
+This scenario tests dcf's local Docker deployment path (`dcf/local_deploy.py`). The collector
 used as the test vehicle is `github_repos`: a simple HTTP source with bearer auth, six
 columns, append strategy — already validated in many prior test runs.
 
-## Test Pipeline
+## Test Collector
 
 ```yaml
 version: 1
@@ -54,7 +54,7 @@ deployment:
 
 1. Clone quipu and inject `test_config.yml` as `project.yml` (standard test setup).
 2. Overwrite `catalog: local` in `project.yml` (test_config may have `catalog: gcp`).
-3. Write the `github_repos.yml` pipeline above to `$CLONE/pipelines/`.
+3. Write the `github_repos.yml` collector above to `$CLONE/collectors/`.
 4. Run `dcf validate github_repos` — should confirm `(batch, schedule: 0 8 * * *, 6 columns)`.
 5. Run `docker info` — confirm Docker Desktop is running.
 
@@ -109,7 +109,7 @@ Phase 4 success: undeploy removes image; no Docker artifacts remain; warehouse d
 
 ## Known Complexity
 
-- **Env var forwarding**: The pipeline YAML uses `{{ env.GH_PAT }}` but `local_deploy.py`
+- **Env var forwarding**: The collector YAML uses `{{ env.GH_PAT }}` but `local_deploy.py`
   runs the container with `docker run --rm`. Host env vars are not automatically forwarded
   into the container. This is the most likely source of a blocking finding — watch for the
   container failing to authenticate with GitHub.
@@ -130,7 +130,7 @@ Phase 4 success: undeploy removes image; no Docker artifacts remain; warehouse d
 
 - **Blocking (likely)**: `local_deploy.py` does not forward `{{ env.* }}` variables from
   the host into the `docker run` command. The container will fail to fetch GitHub data unless
-  `GH_PAT` is baked into the image (which it should not be). Fix: scan the pipeline YAML for
+  `GH_PAT` is baked into the image (which it should not be). Fix: scan the collector YAML for
   `{{ env.VAR }}` references and pass each as `-e VAR=$VAR` on the docker run command.
 
 - **Minor/UX (possible)**: `deploy: schedule:` is required for `type: batch` even when
@@ -150,6 +150,6 @@ Phase 4 success: undeploy removes image; no Docker artifacts remain; warehouse d
 
 - Full command prefix: `DCF_PROJECT_DIR=$CLONE uv --directory /Users/zephschafer/Documents/GitHub/dcf run dcf <command>`
 - After injecting `test_config.yml` as `project.yml`, explicitly set `catalog: local` — the test config likely has `catalog: gcp`.
-- The pipeline YAML for `github_repos` is well-tested from prior runs. If auth fails inside the container, it is almost certainly the env var forwarding issue (pre-identified above), not a schema or fetch bug.
+- The collector YAML for `github_repos` is well-tested from prior runs. If auth fails inside the container, it is almost certainly the env var forwarding issue (pre-identified above), not a schema or fetch bug.
 - Do NOT use `catalog: gcp` at any point in this scenario.
 - If Docker is not running, stop and ask the user to start Docker Desktop before continuing.

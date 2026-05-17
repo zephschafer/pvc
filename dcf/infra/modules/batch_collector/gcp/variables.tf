@@ -8,9 +8,9 @@ variable "region" {
   description = "GCP region"
 }
 
-variable "pipeline_name" {
+variable "collector_name" {
   type        = string
-  description = "dcf pipeline name (e.g. github_repos)"
+  description = "dcf collector name (e.g. github_repos)"
 }
 
 variable "image_uri" {

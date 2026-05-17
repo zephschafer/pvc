@@ -1,4 +1,4 @@
-# Implementation Plan: Batch Pipeline Deployment
+# Implementation Plan: Batch Collector Deployment
 
 **Design:** [`design/batch-deployment.md`](./batch-deployment.md)
 **Feature:** [`features/batch-deployment.md`](../features/batch-deployment.md)
@@ -10,7 +10,7 @@
 
 ## Overview
 
-This plan replaces two Python-only deploy implementations (`local_deploy._build_batch_image()` and `batch_deploy._build_image()` + `_find_or_create_composer_env()`) with declarative Terraform modules that manage the full lifecycle — container build, deployment, and Airflow orchestration — for both local and GCP targets. DAGs are written as files to a mounted directory rather than baked into an image, so adding or removing pipelines does not require restarting Airflow. The test vehicle throughout is the `github_repos` pipeline (HTTP, bearer auth, append strategy, six columns — the simplest existing pipeline).
+This plan replaces two Python-only deploy implementations (`local_deploy._build_batch_image()` and `batch_deploy._build_image()` + `_find_or_create_composer_env()`) with declarative Terraform modules that manage the full lifecycle — container build, deployment, and Airflow orchestration — for both local and GCP targets. DAGs are written as files to a mounted directory rather than baked into an image, so adding or removing collectors does not require restarting Airflow. The test vehicle throughout is the `github_repos` collector (HTTP, bearer auth, append strategy, six columns — the simplest existing collector).
 
 Phases 1–3 are local-only and require no GCP credentials. Phases 4–5 require a live GCP project. The primary risks are Terraform `null_resource` trigger behavior (ensure content_hash actually causes a re-run), Cloud SQL provisioning time (~5–10 minutes on first deploy), and the Docker socket mount on Mac (verify the path is correct for Docker Desktop).
 
@@ -18,7 +18,7 @@ Phases 1–3 are local-only and require no GCP credentials. Phases 4–5 require
 
 ## Phase 1: Module Foundations
 
-**Goal:** The shared Dockerfile template and `batch_pipeline_local/` Terraform module exist and pass `terraform validate`.
+**Goal:** The shared Dockerfile template and `batch_collector_local/` Terraform module exist and pass `terraform validate`.
 
 **Testable without completing later phases:** Yes — `terraform validate` and `terraform plan` are sufficient.
 
@@ -26,26 +26,26 @@ Phases 1–3 are local-only and require no GCP credentials. Phases 4–5 require
 
 | File | Action | What to implement |
 |------|--------|-------------------|
-| `dcf/infra/modules/templates/batch_pipeline.Dockerfile.tftpl` | Create | Terraform template. Base image `python:3.12-slim`. Conditional Java block using `%{ if java_enabled ~}...%{ endif ~}` that installs `openjdk-21-jre-headless` when true. Then: `WORKDIR /app`, `COPY pyproject.toml .`, `COPY dcf/ ./dcf/`, `RUN pip install --no-cache-dir -e .`, `COPY pipelines/ ./pipelines/`, `COPY connectors/ ./connectors/`, `COPY project.yml .`, `ENV PIPELINE_NAME=""`, `CMD ["sh", "-c", "dcf run $PIPELINE_NAME"]` |
-| `dcf/infra/modules/batch_pipeline_local/variables.tf` | Create | Five variables: `pipeline_name` (string), `build_context` (string — absolute path to the stable build dir), `image_tag` (string, e.g. `dcf-local/github_repos:latest`), `content_hash` (string — SHA256 trigger), `java_enabled` (bool, default `true`) |
-| `dcf/infra/modules/batch_pipeline_local/main.tf` | Create | Two resources: (1) `local_file.dockerfile` — uses `templatefile("${path.module}/../../templates/batch_pipeline.Dockerfile.tftpl", { java_enabled = var.java_enabled })`, writes to `"${var.build_context}/Dockerfile"`. (2) `null_resource.build` — `depends_on = [local_file.dockerfile]`, `triggers = { content_hash = var.content_hash }`, `provisioner "local-exec"` running `docker build -t ${var.image_tag} ${var.build_context}`. Requires only `hashicorp/null` and `hashicorp/local` providers (no google provider). |
-| `dcf/infra/modules/batch_pipeline_local/outputs.tf` | Create | Single output `image_tag` with value `var.image_tag` |
+| `dcf/infra/modules/templates/batch_collector.Dockerfile.tftpl` | Create | Terraform template. Base image `python:3.12-slim`. Conditional Java block using `%{ if java_enabled ~}...%{ endif ~}` that installs `openjdk-21-jre-headless` when true. Then: `WORKDIR /app`, `COPY pyproject.toml .`, `COPY dcf/ ./dcf/`, `RUN pip install --no-cache-dir -e .`, `COPY collectors/ ./collectors/`, `COPY connectors/ ./connectors/`, `COPY project.yml .`, `ENV PIPELINE_NAME=""`, `CMD ["sh", "-c", "dcf run $PIPELINE_NAME"]` |
+| `dcf/infra/modules/batch_collector_local/variables.tf` | Create | Five variables: `collector_name` (string), `build_context` (string — absolute path to the stable build dir), `image_tag` (string, e.g. `dcf-local/github_repos:latest`), `content_hash` (string — SHA256 trigger), `java_enabled` (bool, default `true`) |
+| `dcf/infra/modules/batch_collector_local/main.tf` | Create | Two resources: (1) `local_file.dockerfile` — uses `templatefile("${path.module}/../../templates/batch_collector.Dockerfile.tftpl", { java_enabled = var.java_enabled })`, writes to `"${var.build_context}/Dockerfile"`. (2) `null_resource.build` — `depends_on = [local_file.dockerfile]`, `triggers = { content_hash = var.content_hash }`, `provisioner "local-exec"` running `docker build -t ${var.image_tag} ${var.build_context}`. Requires only `hashicorp/null` and `hashicorp/local` providers (no google provider). |
+| `dcf/infra/modules/batch_collector_local/outputs.tf` | Create | Single output `image_tag` with value `var.image_tag` |
 
 ### Implementation Notes
 
 **Template syntax:** Terraform template files use `${ }` for variable interpolation and `%{ if condition ~}...%{ endif ~}` for conditionals. The `~}` strips trailing whitespace. The `java_enabled` variable must match the Terraform bool type exactly — pass it as a bool in `templatefile()`, not a string.
 
-**Provider requirements:** `batch_pipeline_local/` must NOT declare the `google` provider. Declare only `required_providers { null = { source = "hashicorp/null" }, local = { source = "hashicorp/local" } }`. This is critical — the google provider initialization requires GCP credentials and would break the local-only target.
+**Provider requirements:** `batch_collector_local/` must NOT declare the `google` provider. Declare only `required_providers { null = { source = "hashicorp/null" }, local = { source = "hashicorp/local" } }`. This is critical — the google provider initialization requires GCP credentials and would break the local-only target.
 
-**Template path:** `"${path.module}/../../templates/batch_pipeline.Dockerfile.tftpl"` — `path.module` resolves to the directory containing the `.tf` file being evaluated, so from `batch_pipeline_local/main.tf` this resolves to `dcf/infra/modules/templates/`.
+**Template path:** `"${path.module}/../../templates/batch_collector.Dockerfile.tftpl"` — `path.module` resolves to the directory containing the `.tf` file being evaluated, so from `batch_collector_local/main.tf` this resolves to `dcf/infra/modules/templates/`.
 
 **null_resource trigger:** The `content_hash` trigger causes `null_resource.build` to re-run when the hash changes. Without a trigger, Terraform would only run the provisioner on first `apply`. The hash must be passed consistently — if Python changes the hash computation, it causes a rebuild regardless of actual file changes.
 
 ### Done When
 
-- [ ] `terraform validate` succeeds in `dcf/infra/modules/batch_pipeline_local/`
+- [ ] `terraform validate` succeeds in `dcf/infra/modules/batch_collector_local/`
 - [ ] `terraform plan` with a test tfvars file shows `local_file.dockerfile` and `null_resource.build` would be created
-- [ ] The `templates/` directory exists and `batch_pipeline.Dockerfile.tftpl` renders correctly with `java_enabled=true` (includes the apt-get Java install line) and `java_enabled=false` (no apt-get line)
+- [ ] The `templates/` directory exists and `batch_collector.Dockerfile.tftpl` renders correctly with `java_enabled=true` (includes the apt-get Java install line) and `java_enabled=false` (no apt-get line)
 
 ### Test Scenario
 
@@ -53,9 +53,9 @@ Phases 1–3 are local-only and require no GCP credentials. Phases 4–5 require
 
 ---
 
-## Phase 2: Local Pipeline Deploy via Terraform
+## Phase 2: Local Collector Deploy via Terraform
 
-**Goal:** `dcf deploy github_repos` with `catalog: local` builds the pipeline Docker image via the new Terraform module and writes a DAG file to `~/.dcf/airflow/dags/`. `dcf undeploy github_repos` runs `terraform destroy` and deletes the DAG file. Hard cutover — `_build_batch_image()` is deleted.
+**Goal:** `dcf deploy github_repos` with `catalog: local` builds the collector Docker image via the new Terraform module and writes a DAG file to `~/.dcf/airflow/dags/`. `dcf undeploy github_repos` runs `terraform destroy` and deletes the DAG file. Hard cutover — `_build_batch_image()` is deleted.
 
 **Testable without completing later phases:** Yes — the image builds and the DAG file is written even before Airflow exists.
 
@@ -63,43 +63,43 @@ Phases 1–3 are local-only and require no GCP credentials. Phases 4–5 require
 
 | File | Action | What to implement |
 |------|--------|-------------------|
-| `dcf/local_deploy.py` | Modify | Delete `_build_batch_image()`. Rewrite `_deploy_batch()`: (1) call `_sync_build_context(project_root, pipeline_name)` to create a stable dir at `~/.dcf/build/local/<name>/` with dcf source + pyproject.toml + pipelines/<name>.yml + connectors/ + minimal `project.yml` stub (`catalog: local\n`); (2) compute `content_hash` over synced files; (3) call `_tf_apply_local_pipeline(pipeline_name, build_context, image_tag, content_hash)`; (4) call `_write_local_dag(pipeline_name, schedule, paused, image_tag, warehouse_path)` to write DAG file to `~/.dcf/airflow/dags/<name>.py`. Rewrite `_undeploy_batch()`: call `_tf_destroy_local_pipeline(pipeline_name)` then delete `~/.dcf/airflow/dags/<name>.py` if it exists. |
-| `dcf/local_deploy.py` | Modify | Add `_sync_build_context(project_root, pipeline_name) -> Path`: creates `~/.dcf/build/local/<pipeline_name>/`, uses `shutil.copytree` with `dirs_exist_ok=True` for `dcf/` source and subdirs, copies `pyproject.toml`, writes minimal `project.yml`. Returns the Path. |
+| `dcf/local_deploy.py` | Modify | Delete `_build_batch_image()`. Rewrite `_deploy_batch()`: (1) call `_sync_build_context(project_root, collector_name)` to create a stable dir at `~/.dcf/build/local/<name>/` with dcf source + pyproject.toml + collectors/<name>.yml + connectors/ + minimal `project.yml` stub (`catalog: local\n`); (2) compute `content_hash` over synced files; (3) call `_tf_apply_local_collector(collector_name, build_context, image_tag, content_hash)`; (4) call `_write_local_dag(collector_name, schedule, paused, image_tag, warehouse_path)` to write DAG file to `~/.dcf/airflow/dags/<name>.py`. Rewrite `_undeploy_batch()`: call `_tf_destroy_local_collector(collector_name)` then delete `~/.dcf/airflow/dags/<name>.py` if it exists. |
+| `dcf/local_deploy.py` | Modify | Add `_sync_build_context(project_root, collector_name) -> Path`: creates `~/.dcf/build/local/<collector_name>/`, uses `shutil.copytree` with `dirs_exist_ok=True` for `dcf/` source and subdirs, copies `pyproject.toml`, writes minimal `project.yml`. Returns the Path. |
 | `dcf/local_deploy.py` | Modify | Add `_content_hash(build_context: Path) -> str`: iterates `sorted(build_context.rglob("*"))`, skips `Dockerfile` (written by Terraform, not by Python), reads each file's bytes, accumulates into `hashlib.sha256()`, returns hexdigest. |
-| `dcf/local_deploy.py` | Modify | Add `_tf_apply_local_pipeline(pipeline_name, build_context, image_tag, content_hash)`: mirrors `batch_deploy._terraform_apply_pipeline()` — creates work dir at `~/.dcf/terraform/pipelines/<name>/local/`, copies `.tf` files from `dcf/infra/modules/batch_pipeline_local/`, writes `terraform.tfvars.json`, runs `terraform init` then `terraform apply -auto-approve`. Uses the same `_tf_env()` pattern (TF_INPUT=0, plugin cache). |
-| `dcf/local_deploy.py` | Modify | Add `_tf_destroy_local_pipeline(pipeline_name)`: creates same work dir, copies same `.tf` files, runs `terraform init` then `terraform destroy -auto-approve`. After destroy, call `shutil.rmtree(work_dir)` to remove state. |
-| `dcf/local_deploy.py` | Modify | Add `_local_dag_content(pipeline_name, schedule, paused, image_tag, warehouse_path) -> str`: returns a Python string that is a valid Airflow DAG using `DockerOperator`. Import: `from airflow.providers.docker.operators.docker import DockerOperator`. DAG uses `schedule_interval=schedule`, `is_paused_upon_creation=paused`, task uses `image=image_tag`, `environment={"PIPELINE_NAME": pipeline_name}`, `volumes=[f"{warehouse_path}:/app/warehouse"]`, `docker_url="unix:///var/run/docker.sock"`, `auto_remove="success"`. |
-| `dcf/local_deploy.py` | Modify | Add `_write_local_dag(pipeline_name, schedule, paused, image_tag, warehouse_path)`: creates `~/.dcf/airflow/dags/` if needed, writes `_local_dag_content(...)` to `~/.dcf/airflow/dags/<pipeline_name>.py`. |
-| `dcf/cli.py` | Modify | Update `deploy()`: support no-arg call — if `pipeline_name` is `None`, scan `pipelines/` dir for all YAMLs with a `deploy:` block, deploy each independently (continue on failure, collect errors), print per-pipeline summary, exit non-zero if any failed. Make `pipeline_name` an `Optional[str]` arg with `typer.Argument(default=None)`. |
-| `dcf/cli.py` | Modify | Update `undeploy()`: change confirmation text from Composer-specific wording to `"Remove pipeline '{name}' deployment and stop its scheduling?"`. Update routing: local batch uses new `local_deploy.undeploy()` which calls `_tf_destroy_local_pipeline` + DAG delete. Remove any stale Composer-specific messaging. |
-| `tests/test_deploy_cli.py` | Modify | Update `test_deploy_requires_gcp_catalog`: `catalog: local` is now VALID for `dcf deploy`. Change this test to verify that `catalog: local` routes to local deploy (mock `local_deploy.deploy` and assert it is called). Add a new test `test_deploy_no_args_deploys_all` that creates two pipelines with `deploy:` blocks and asserts both are deployed when `dcf deploy` is called with no args. |
+| `dcf/local_deploy.py` | Modify | Add `_tf_apply_local_collector(collector_name, build_context, image_tag, content_hash)`: mirrors `batch_deploy._terraform_apply_collector()` — creates work dir at `~/.dcf/terraform/collectors/<name>/local/`, copies `.tf` files from `dcf/infra/modules/batch_collector_local/`, writes `terraform.tfvars.json`, runs `terraform init` then `terraform apply -auto-approve`. Uses the same `_tf_env()` pattern (TF_INPUT=0, plugin cache). |
+| `dcf/local_deploy.py` | Modify | Add `_tf_destroy_local_collector(collector_name)`: creates same work dir, copies same `.tf` files, runs `terraform init` then `terraform destroy -auto-approve`. After destroy, call `shutil.rmtree(work_dir)` to remove state. |
+| `dcf/local_deploy.py` | Modify | Add `_local_dag_content(collector_name, schedule, paused, image_tag, warehouse_path) -> str`: returns a Python string that is a valid Airflow DAG using `DockerOperator`. Import: `from airflow.providers.docker.operators.docker import DockerOperator`. DAG uses `schedule_interval=schedule`, `is_paused_upon_creation=paused`, task uses `image=image_tag`, `environment={"PIPELINE_NAME": collector_name}`, `volumes=[f"{warehouse_path}:/app/warehouse"]`, `docker_url="unix:///var/run/docker.sock"`, `auto_remove="success"`. |
+| `dcf/local_deploy.py` | Modify | Add `_write_local_dag(collector_name, schedule, paused, image_tag, warehouse_path)`: creates `~/.dcf/airflow/dags/` if needed, writes `_local_dag_content(...)` to `~/.dcf/airflow/dags/<collector_name>.py`. |
+| `dcf/cli.py` | Modify | Update `deploy()`: support no-arg call — if `collector_name` is `None`, scan `collectors/` dir for all YAMLs with a `deploy:` block, deploy each independently (continue on failure, collect errors), print per-collector summary, exit non-zero if any failed. Make `collector_name` an `Optional[str]` arg with `typer.Argument(default=None)`. |
+| `dcf/cli.py` | Modify | Update `undeploy()`: change confirmation text from Composer-specific wording to `"Remove collector '{name}' deployment and stop its scheduling?"`. Update routing: local batch uses new `local_deploy.undeploy()` which calls `_tf_destroy_local_collector` + DAG delete. Remove any stale Composer-specific messaging. |
+| `tests/test_deploy_cli.py` | Modify | Update `test_deploy_requires_gcp_catalog`: `catalog: local` is now VALID for `dcf deploy`. Change this test to verify that `catalog: local` routes to local deploy (mock `local_deploy.deploy` and assert it is called). Add a new test `test_deploy_no_args_deploys_all` that creates two collectors with `deploy:` blocks and asserts both are deployed when `dcf deploy` is called with no args. |
 
 ### Implementation Notes
 
 **`_sync_build_context` sync strategy:** Use `shutil.copytree(src, dst, dirs_exist_ok=True)` for directories. For individual files (`pyproject.toml`), use `shutil.copy2`. This overwrites stale files but does not delete files that have been removed from source. For correctness, wipe and recreate the stable dir on each deploy: `shutil.rmtree(build_context, ignore_errors=True)` then `build_context.mkdir(parents=True)`.
 
-**Stable build context path:** `Path.home() / ".dcf" / "build" / "local" / pipeline_name`. This persists across deploys so Terraform can track the Dockerfile it wrote previously.
+**Stable build context path:** `Path.home() / ".dcf" / "build" / "local" / collector_name`. This persists across deploys so Terraform can track the Dockerfile it wrote previously.
 
-**`_content_hash` skips Dockerfile:** The Dockerfile is written by Terraform's `local_file.dockerfile`. If Python's hash included it, the hash would be stale before Terraform writes it. Hash only the files Python controls: dcf source, pyproject.toml, pipeline YAMLs, connectors, project.yml stub.
+**`_content_hash` skips Dockerfile:** The Dockerfile is written by Terraform's `local_file.dockerfile`. If Python's hash included it, the hash would be stale before Terraform writes it. Hash only the files Python controls: dcf source, pyproject.toml, collector YAMLs, connectors, project.yml stub.
 
-**`image_tag` format:** `f"dcf-local/{pipeline_name}:latest"` — matches the existing convention in `local_deploy.py`.
+**`image_tag` format:** `f"dcf-local/{collector_name}:latest"` — matches the existing convention in `local_deploy.py`.
 
-**`warehouse_path` for DAG:** Use `str(project_root / "warehouse")` — the absolute host path that Docker will volume-mount into the pipeline container. The DockerOperator runs on the host's Docker daemon, so this must be an absolute host path.
+**`warehouse_path` for DAG:** Use `str(project_root / "warehouse")` — the absolute host path that Docker will volume-mount into the collector container. The DockerOperator runs on the host's Docker daemon, so this must be an absolute host path.
 
-**Terraform work dir vs. module dir:** The Terraform module lives in `dcf/infra/modules/batch_pipeline_local/`. The work dir (where state is kept) lives at `~/.dcf/terraform/pipelines/<name>/local/`. The Python function copies `.tf` files from module dir to work dir (same pattern as `batch_deploy._terraform_apply_pipeline()`). This keeps state in `~/.dcf/` and keeps the source module clean.
+**Terraform work dir vs. module dir:** The Terraform module lives in `dcf/infra/modules/batch_collector_local/`. The work dir (where state is kept) lives at `~/.dcf/terraform/collectors/<name>/local/`. The Python function copies `.tf` files from module dir to work dir (same pattern as `batch_deploy._terraform_apply_collector()`). This keeps state in `~/.dcf/` and keeps the source module clean.
 
-**Stale test fix:** `test_deploy_requires_gcp_catalog` (line 51 of `test_deploy_cli.py`) currently asserts exit code 1 and `"catalog is not 'gcp'"` — this is the old behavior. Mock `local_deploy.deploy` to return a dummy state dict and assert it is called. The new test for no-args should create two pipeline YAMLs and mock `local_deploy.deploy` to assert it is called twice.
+**Stale test fix:** `test_deploy_requires_gcp_catalog` (line 51 of `test_deploy_cli.py`) currently asserts exit code 1 and `"catalog is not 'gcp'"` — this is the old behavior. Mock `local_deploy.deploy` to return a dummy state dict and assert it is called. The new test for no-args should create two collector YAMLs and mock `local_deploy.deploy` to assert it is called twice.
 
 ### Done When
 
 - [ ] `dcf deploy github_repos` with `catalog: local` in project.yml runs `terraform apply`, builds `dcf-local/github_repos:latest`, exits 0
 - [ ] `docker images | grep dcf-local/github_repos` shows the image after deploy
 - [ ] `~/.dcf/airflow/dags/github_repos.py` exists after deploy and contains a `DockerOperator` DAG
-- [ ] `~/.dcf/terraform/pipelines/github_repos/local/terraform.tfstate` exists
+- [ ] `~/.dcf/terraform/collectors/github_repos/local/terraform.tfstate` exists
 - [ ] `dcf undeploy github_repos` runs `terraform destroy`, removes `~/.dcf/airflow/dags/github_repos.py`, exits 0
 - [ ] `docker images | grep dcf-local/github_repos` returns empty after undeploy
-- [ ] `~/.dcf/terraform/pipelines/github_repos/local/` directory is removed after undeploy
-- [ ] `dcf deploy` (no args, two pipelines with `deploy:` blocks) deploys both; exits non-zero if either fails
+- [ ] `~/.dcf/terraform/collectors/github_repos/local/` directory is removed after undeploy
+- [ ] `dcf deploy` (no args, two collectors with `deploy:` blocks) deploys both; exits non-zero if either fails
 - [ ] `pytest tests/test_deploy_cli.py` passes (with updated tests)
 
 ### Test Scenario
@@ -110,7 +110,7 @@ Phases 1–3 are local-only and require no GCP credentials. Phases 4–5 require
 
 ## Phase 3: Local Airflow Stack
 
-**Goal:** `dcf deploy github_repos` with `catalog: local` also starts a local Airflow Docker Compose stack. The Airflow scheduler reads DAGs from `~/.dcf/airflow/dags/`. The `github_repos` DAG appears in the Airflow UI and can be triggered to run the pipeline container.
+**Goal:** `dcf deploy github_repos` with `catalog: local` also starts a local Airflow Docker Compose stack. The Airflow scheduler reads DAGs from `~/.dcf/airflow/dags/`. The `github_repos` DAG appears in the Airflow UI and can be triggered to run the collector container.
 
 **Testable without completing later phases:** Yes — requires only local Docker and the `github_repos` image from Phase 2.
 
@@ -149,7 +149,7 @@ Phases 1–3 are local-only and require no GCP credentials. Phases 4–5 require
 - [ ] `docker compose -f ~/.dcf/airflow/docker-compose.yml ps` shows all services running
 - [ ] `http://localhost:8080` returns the Airflow UI (login: admin / project.yml password)
 - [ ] The `github_repos` DAG is visible in the Airflow UI
-- [ ] Manually triggering the DAG via the UI runs the pipeline container and writes Parquet to `./warehouse/`
+- [ ] Manually triggering the DAG via the UI runs the collector container and writes Parquet to `./warehouse/`
 - [ ] `dcf undeploy github_repos` removes the DAG file; Airflow no longer shows the DAG after ~30s (without restarting Airflow)
 - [ ] Second `dcf deploy github_repos` is idempotent — Airflow stack does not restart; only the DAG file is refreshed
 
@@ -159,9 +159,9 @@ Phases 1–3 are local-only and require no GCP credentials. Phases 4–5 require
 
 ---
 
-## Phase 4: GCP Pipeline Container via Terraform
+## Phase 4: GCP Collector Container via Terraform
 
-**Goal:** `dcf deploy github_repos` with `catalog: gcp` builds the pipeline container via Terraform (`null_resource` + `gcloud builds submit`), creates the Cloud Run job, and writes the DAG file to `gs://<warehouse-bucket>/airflow/dags/github_repos.py`. Cloud Composer is not used. No Airflow stack yet.
+**Goal:** `dcf deploy github_repos` with `catalog: gcp` builds the collector container via Terraform (`null_resource` + `gcloud builds submit`), creates the Cloud Run job, and writes the DAG file to `gs://<warehouse-bucket>/airflow/dags/github_repos.py`. Cloud Composer is not used. No Airflow stack yet.
 
 **Testable without completing later phases:** Yes — the Cloud Run job exists and can be triggered manually; the DAG file is in GCS.
 
@@ -169,31 +169,31 @@ Phases 1–3 are local-only and require no GCP credentials. Phases 4–5 require
 
 | File | Action | What to implement |
 |------|--------|-------------------|
-| `dcf/infra/modules/gcp/batch_pipeline/main.tf` | Modify | Remove `google_storage_bucket_object.dag` resource. Add `local_file.dockerfile`: renders `batch_pipeline.Dockerfile.tftpl` with `java_enabled = var.java_enabled`, writes to `"${var.build_context}/Dockerfile"`. Add `null_resource.build`: `depends_on = [local_file.dockerfile]`, `triggers = { content_hash = var.content_hash }`, `provisioner "local-exec"` runs `gcloud builds submit --project ${var.project_id} --region ${var.region} --tag ${var.image_uri} --timeout 600s ${var.build_context}`. Fix: rename `"pvc-job-${...}"` → `"dcf-job-${...}"` in `google_cloud_run_v2_job.pipeline`. Add required providers `hashicorp/local` and `hashicorp/null` alongside existing `hashicorp/google`. |
-| `dcf/infra/modules/gcp/batch_pipeline/variables.tf` | Modify | Remove variables: `dag_bucket`, `dag_blob_name`, `dag_content`. Add variables: `build_context` (string), `content_hash` (string), `java_enabled` (bool, default `false`). Keep all existing variables. |
-| `dcf/infra/modules/gcp/batch_pipeline/outputs.tf` | Modify | Remove `dag_blob_name` output. Keep `job_name` output. |
+| `dcf/infra/modules/gcp/batch_collector/main.tf` | Modify | Remove `google_storage_bucket_object.dag` resource. Add `local_file.dockerfile`: renders `batch_collector.Dockerfile.tftpl` with `java_enabled = var.java_enabled`, writes to `"${var.build_context}/Dockerfile"`. Add `null_resource.build`: `depends_on = [local_file.dockerfile]`, `triggers = { content_hash = var.content_hash }`, `provisioner "local-exec"` runs `gcloud builds submit --project ${var.project_id} --region ${var.region} --tag ${var.image_uri} --timeout 600s ${var.build_context}`. Fix: rename `"pvc-job-${...}"` → `"dcf-job-${...}"` in `google_cloud_run_v2_job.collector`. Add required providers `hashicorp/local` and `hashicorp/null` alongside existing `hashicorp/google`. |
+| `dcf/infra/modules/gcp/batch_collector/variables.tf` | Modify | Remove variables: `dag_bucket`, `dag_blob_name`, `dag_content`. Add variables: `build_context` (string), `content_hash` (string), `java_enabled` (bool, default `false`). Keep all existing variables. |
+| `dcf/infra/modules/gcp/batch_collector/outputs.tf` | Modify | Remove `dag_blob_name` output. Keep `job_name` output. |
 | `dcf/gcp/batch_deploy.py` | Modify | Remove functions: `_build_image()`, `_find_or_create_composer_env()`, `_parse_dag_path()`, `_dag_content()` (replace with standalone DAG writer). |
-| `dcf/gcp/batch_deploy.py` | Modify | Add `_sync_build_context(project_root: Path, pipeline_name: str) -> Path`: same logic as the local equivalent — creates `~/.dcf/build/gcp/<name>/`, syncs dcf source + pyproject.toml + pipelines/<name>.yml + connectors/ + minimal GCP `project.yml` stub (`catalog: gcp\ngcp:\n  project_id: ...\n  region: ...\n  warehouse_bucket: ...`). Returns path. |
+| `dcf/gcp/batch_deploy.py` | Modify | Add `_sync_build_context(project_root: Path, collector_name: str) -> Path`: same logic as the local equivalent — creates `~/.dcf/build/gcp/<name>/`, syncs dcf source + pyproject.toml + collectors/<name>.yml + connectors/ + minimal GCP `project.yml` stub (`catalog: gcp\ngcp:\n  project_id: ...\n  region: ...\n  warehouse_bucket: ...`). Returns path. |
 | `dcf/gcp/batch_deploy.py` | Modify | Add `_content_hash(build_context: Path) -> str`: SHA256 of all files in build context (excluding `Dockerfile`), same as local equivalent. |
-| `dcf/gcp/batch_deploy.py` | Modify | Rewrite `_terraform_apply_pipeline()`: remove `dag_bucket`, `dag_blob_name`, `dag_content` from tfvars; add `build_context`, `content_hash`, `java_enabled=False`. |
-| `dcf/gcp/batch_deploy.py` | Modify | Add `_gcp_dag_content(pipeline_name, schedule, paused, project_id, region, job_name) -> str`: returns the Airflow DAG Python string using `CloudRunExecuteJobOperator` (same logic as existing `_dag_content()` but renamed and kept as a Python function, not a Terraform variable). |
-| `dcf/gcp/batch_deploy.py` | Modify | Add `_write_dag_gcs(dag_content: str, pipeline_name: str, warehouse_bucket: str)`: uses `google.cloud.storage.Client` to upload `dag_content` as a blob at `airflow/dags/<pipeline_name>.py` in `warehouse_bucket`. |
-| `dcf/gcp/batch_deploy.py` | Modify | Add `_delete_dag_gcs(pipeline_name: str, warehouse_bucket: str)`: deletes `airflow/dags/<pipeline_name>.py` from `warehouse_bucket` if it exists (no error if absent). |
-| `dcf/gcp/batch_deploy.py` | Modify | Rewrite `deploy()`: (1) call `_sync_build_context()`, (2) `_content_hash()`, (3) `_terraform_apply_pipeline()`, (4) `_gcp_dag_content()`, (5) `_write_dag_gcs()`. Remove all Composer-related calls. |
-| `dcf/gcp/batch_deploy.py` | Modify | Rewrite `undeploy()`: call `_terraform_destroy_pipeline()` then `_delete_dag_gcs()`. |
-| `dcf/gcp/_pipeline_utils.py` | Modify | If any shared helpers (e.g., `_require_gcp_config()`) reference Composer or DAG bucket, remove those references. |
+| `dcf/gcp/batch_deploy.py` | Modify | Rewrite `_terraform_apply_collector()`: remove `dag_bucket`, `dag_blob_name`, `dag_content` from tfvars; add `build_context`, `content_hash`, `java_enabled=False`. |
+| `dcf/gcp/batch_deploy.py` | Modify | Add `_gcp_dag_content(collector_name, schedule, paused, project_id, region, job_name) -> str`: returns the Airflow DAG Python string using `CloudRunExecuteJobOperator` (same logic as existing `_dag_content()` but renamed and kept as a Python function, not a Terraform variable). |
+| `dcf/gcp/batch_deploy.py` | Modify | Add `_write_dag_gcs(dag_content: str, collector_name: str, warehouse_bucket: str)`: uses `google.cloud.storage.Client` to upload `dag_content` as a blob at `airflow/dags/<collector_name>.py` in `warehouse_bucket`. |
+| `dcf/gcp/batch_deploy.py` | Modify | Add `_delete_dag_gcs(collector_name: str, warehouse_bucket: str)`: deletes `airflow/dags/<collector_name>.py` from `warehouse_bucket` if it exists (no error if absent). |
+| `dcf/gcp/batch_deploy.py` | Modify | Rewrite `deploy()`: (1) call `_sync_build_context()`, (2) `_content_hash()`, (3) `_terraform_apply_collector()`, (4) `_gcp_dag_content()`, (5) `_write_dag_gcs()`. Remove all Composer-related calls. |
+| `dcf/gcp/batch_deploy.py` | Modify | Rewrite `undeploy()`: call `_terraform_destroy_collector()` then `_delete_dag_gcs()`. |
+| `dcf/gcp/_collector_utils.py` | Modify | If any shared helpers (e.g., `_require_gcp_config()`) reference Composer or DAG bucket, remove those references. |
 
 ### Implementation Notes
 
-**`pvc-job-` rename:** The existing state at `~/.dcf/terraform/pipelines/<name>/gcp/terraform.tfstate` may already reference a Cloud Run job named `pvc-job-...`. Renaming the resource in `main.tf` will cause Terraform to try to destroy the old job and create a new one. This is correct behavior — the old name was wrong. The `_import_existing_cloud_run_job()` function will need to be updated to import with the new name `dcf-job-...`. Add a migration note to the scenario Known Complexity.
+**`pvc-job-` rename:** The existing state at `~/.dcf/terraform/collectors/<name>/gcp/terraform.tfstate` may already reference a Cloud Run job named `pvc-job-...`. Renaming the resource in `main.tf` will cause Terraform to try to destroy the old job and create a new one. This is correct behavior — the old name was wrong. The `_import_existing_cloud_run_job()` function will need to be updated to import with the new name `dcf-job-...`. Add a migration note to the scenario Known Complexity.
 
-**`_ensure_artifact_registry_repo()`:** This function in `batch_deploy.py` ensures the Artifact Registry repo exists before Cloud Build pushes. It should remain as a Python call before `terraform apply`, not move into Terraform, since the repo is a project-level resource (not per-pipeline). Call it from `deploy()` before the Terraform step.
+**`_ensure_artifact_registry_repo()`:** This function in `batch_deploy.py` ensures the Artifact Registry repo exists before Cloud Build pushes. It should remain as a Python call before `terraform apply`, not move into Terraform, since the repo is a project-level resource (not per-collector). Call it from `deploy()` before the Terraform step.
 
-**GCP minimal `project.yml` stub:** The stub baked into the GCP pipeline image must include `gcp.warehouse_bucket` so `dcf run` inside the container can write to GCS. The container uses Workload Identity (the Cloud Run SA has Storage permissions) — no credentials file needed in the image.
+**GCP minimal `project.yml` stub:** The stub baked into the GCP collector image must include `gcp.warehouse_bucket` so `dcf run` inside the container can write to GCS. The container uses Workload Identity (the Cloud Run SA has Storage permissions) — no credentials file needed in the image.
 
-**GCS DAG write:** Use `from google.cloud import storage; client = storage.Client(project=project_id); bucket = client.bucket(warehouse_bucket); blob = bucket.blob(f"airflow/dags/{pipeline_name}.py"); blob.upload_from_string(dag_content, content_type="text/plain")`. This requires `google-cloud-storage` which is already a dcf dependency.
+**GCS DAG write:** Use `from google.cloud import storage; client = storage.Client(project=project_id); bucket = client.bucket(warehouse_bucket); blob = bucket.blob(f"airflow/dags/{collector_name}.py"); blob.upload_from_string(dag_content, content_type="text/plain")`. This requires `google-cloud-storage` which is already a dcf dependency.
 
-**Terraform state migration:** If a developer has existing Terraform state for `batch_pipeline/` (from the Composer-based implementation), running `terraform apply` with the new module will see `google_storage_bucket_object.dag` in state but not in config — Terraform will plan to destroy it. This is correct behavior. Note it in the scenario.
+**Terraform state migration:** If a developer has existing Terraform state for `batch_collector/` (from the Composer-based implementation), running `terraform apply` with the new module will see `google_storage_bucket_object.dag` in state but not in config — Terraform will plan to destroy it. This is correct behavior. Note it in the scenario.
 
 ### Done When
 
@@ -201,7 +201,7 @@ Phases 1–3 are local-only and require no GCP credentials. Phases 4–5 require
 - [ ] `gcloud run jobs list --region <region>` shows `dcf-job-github-repos` (not `pvc-job-...`)
 - [ ] `gsutil ls gs://<bucket>/airflow/dags/` shows `github_repos.py`
 - [ ] `gsutil cat gs://<bucket>/airflow/dags/github_repos.py` contains `CloudRunExecuteJobOperator`
-- [ ] `~/.dcf/terraform/pipelines/github_repos/gcp/terraform.tfstate` shows `google_cloud_run_v2_job.pipeline`; no `google_storage_bucket_object.dag`
+- [ ] `~/.dcf/terraform/collectors/github_repos/gcp/terraform.tfstate` shows `google_cloud_run_v2_job.collector`; no `google_storage_bucket_object.dag`
 - [ ] `dcf undeploy github_repos` (GCP): Cloud Run job deleted, `gs://<bucket>/airflow/dags/github_repos.py` deleted
 - [ ] `terraform show` after undeploy shows no managed resources; state dir removed
 
@@ -213,7 +213,7 @@ Phases 1–3 are local-only and require no GCP credentials. Phases 4–5 require
 
 ## Phase 5: GCP Airflow Stack
 
-**Goal:** `dcf deploy github_repos` with `catalog: gcp` also provisions a Cloud Run Airflow service with Cloud SQL PostgreSQL. The `github_repos` DAG appears in the Airflow UI via the GCS FUSE mount, is triggered on schedule by the Airflow scheduler, and executes the pipeline via `CloudRunExecuteJobOperator`.
+**Goal:** `dcf deploy github_repos` with `catalog: gcp` also provisions a Cloud Run Airflow service with Cloud SQL PostgreSQL. The `github_repos` DAG appears in the Airflow UI via the GCS FUSE mount, is triggered on schedule by the Airflow scheduler, and executes the collector via `CloudRunExecuteJobOperator`.
 
 **Testable without completing later phases:** N/A — this is the final phase.
 
@@ -229,7 +229,7 @@ Phases 1–3 are local-only and require no GCP credentials. Phases 4–5 require
 | `dcf/gcp/batch_deploy.py` | Modify | Add `_generate_airflow_credentials(project_root: Path) -> dict`: reads `project.yml`, extracts `airflow_admin_password` (raise if absent), auto-generates `airflow_fernet_key` if absent + writes back to `project.yml`. Returns dict with `db_password` (auto-generated random string, written to `project.yml` as `airflow_db_password`), `admin_password`, `fernet_key`. |
 | `dcf/gcp/batch_deploy.py` | Modify | Add `_tf_apply_airflow_gcp(build_context, image_uri, content_hash, gcp_config, credentials) -> dict`: creates work dir at `~/.dcf/terraform/airflow/gcp/`, copies TF files from `dcf/infra/modules/gcp/airflow/`, writes tfvars.json, runs `terraform init` + `terraform apply`. Returns outputs dict. |
 | `dcf/gcp/batch_deploy.py` | Modify | Update `deploy()`: after `_write_dag_gcs()`, call `_generate_airflow_credentials()`, `_ensure_artifact_registry_repo()`, `_airflow_build_context()`, `_tf_apply_airflow_gcp()`. Add Airflow URL to returned state dict and print it. |
-| `dcf/gcp/batch_deploy.py` | Modify | Add `_tf_destroy_airflow_gcp()`: mirrors destroy pattern from `_terraform_destroy_pipeline()` for the Airflow module. Called from `undeploy()` only if all pipelines are undeployed (i.e., `airflow/dags/` prefix in GCS is empty after DAG deletion). |
+| `dcf/gcp/batch_deploy.py` | Modify | Add `_tf_destroy_airflow_gcp()`: mirrors destroy pattern from `_terraform_destroy_collector()` for the Airflow module. Called from `undeploy()` only if all collectors are undeployed (i.e., `airflow/dags/` prefix in GCS is empty after DAG deletion). |
 
 ### Implementation Notes
 
@@ -245,7 +245,7 @@ Phases 1–3 are local-only and require no GCP credentials. Phases 4–5 require
 
 **IAM for Cloud Run → Cloud SQL:** The Cloud Run SA needs `roles/cloudsql.client`. Add a `google_project_iam_member` resource in `airflow/main.tf`: `member = "serviceAccount:${var.sa_email}"`, `role = "roles/cloudsql.client"`. Also add `roles/storage.objectViewer` on the warehouse bucket for the GCS FUSE DAG mount (if not already granted by `dcf gcp setup`).
 
-**Airflow undeploy timing:** `_tf_destroy_airflow_gcp()` is only called when ALL pipelines are undeployed (no DAG files remain in GCS). Check `len(list_gcs_dag_files()) == 0` after `_delete_dag_gcs()`. If DAG files remain, leave Airflow running.
+**Airflow undeploy timing:** `_tf_destroy_airflow_gcp()` is only called when ALL collectors are undeployed (no DAG files remain in GCS). Check `len(list_gcs_dag_files()) == 0` after `_delete_dag_gcs()`. If DAG files remain, leave Airflow running.
 
 ### Done When
 
@@ -255,7 +255,7 @@ Phases 1–3 are local-only and require no GCP credentials. Phases 4–5 require
 - [ ] Airflow UI is accessible at the Cloud Run HTTPS URL (login: admin / `airflow_admin_password` from `project.yml`)
 - [ ] `github_repos` DAG appears in the Airflow UI within ~30s of deploy completing
 - [ ] Manually triggering the DAG runs `dcf-job-github-repos` Cloud Run job; data appears in GCS warehouse
-- [ ] `dcf undeploy github_repos` (last pipeline): destroys Cloud Run Airflow service + Cloud SQL + DAG file; Cloud Run pipeline job removed
+- [ ] `dcf undeploy github_repos` (last collector): destroys Cloud Run Airflow service + Cloud SQL + DAG file; Cloud Run collector job removed
 - [ ] `~/.dcf/terraform/airflow/gcp/` is removed after full undeploy
 
 ### Test Scenario
@@ -274,7 +274,7 @@ All design open questions were resolved before planning began. No new decisions 
 
 Phases 1–3 are local-only and can be completed and fully tested without any GCP credentials. Phase 1 (templates + local module) must come before Phase 2 (Python calls Terraform) since Python needs the module to exist. Phase 3 (local Airflow) depends on Phase 2's DAG file writing. Phases 4–5 follow the same dependency structure for GCP. Phase 4 can begin independently of Phase 3 completion — they touch different files.
 
-Phases 2 and 4 could be parallelized by two engineers (different files: `local_deploy.py` vs `batch_deploy.py` + `batch_pipeline/`). Phase 3 depends on Phase 2. Phase 5 depends on Phase 4. Phase 1 must complete before any other phase.
+Phases 2 and 4 could be parallelized by two engineers (different files: `local_deploy.py` vs `batch_deploy.py` + `batch_collector/`). Phase 3 depends on Phase 2. Phase 5 depends on Phase 4. Phase 1 must complete before any other phase.
 
 ---
 
@@ -282,7 +282,7 @@ Phases 2 and 4 could be parallelized by two engineers (different files: `local_d
 
 | Risk | Phase | Mitigation |
 |------|-------|------------|
-| `null_resource` doesn't re-run when expected | 1, 4 | Verify `content_hash` changes when pipeline files change; test with a deliberate file edit before second deploy |
+| `null_resource` doesn't re-run when expected | 1, 4 | Verify `content_hash` changes when collector files change; test with a deliberate file edit before second deploy |
 | `pvc-job-` → `dcf-job-` rename breaks existing Terraform state | 4 | `_import_existing_cloud_run_job()` must be updated to use new name; may need `terraform state rm` + re-import for machines with existing state |
 | Cloud SQL provisioning takes >10 minutes | 5 | Print progress; document expected wait time in scenario Known Complexity |
 | GCS FUSE mount requires `BETA` launch stage | 5 | If the google provider rejects the volume mount config, add `launch_stage = "BETA"` to the Cloud Run service resource |

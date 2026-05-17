@@ -2,7 +2,7 @@
 
 ## Goal
 
-Build a pipeline that ingests issues from a high-volume public GitHub repository,
+Build a collector that ingests issues from a high-volume public GitHub repository,
 using date-range incremental sync. This scenario's primary purpose is to surface and
 characterize dcf's pagination limitation — nearly every real API is paginated, and
 this is the most common Blocking gap for a Fivetran replacement.
@@ -48,9 +48,9 @@ up to 100 items per page; apache/spark has thousands of issues.
 
 ### Phase 1 — YAML Path (Document the Pagination Limitation)
 
-Attempt to build a pipeline using only dcf YAML (no Python connector):
+Attempt to build a collector using only dcf YAML (no Python connector):
 
-1. Write `pipelines/github_issues.yml` using `type: http`, `date_range` iterate
+1. Write `collectors/github_issues.yml` using `type: http`, `date_range` iterate
    axis on `since` param, `per_page: 100`, `namespace: github`
 2. Run `dcf validate github_issues` — should pass
 3. Run `dcf run github_issues --limit 1` with a narrow date window (one week)
@@ -68,18 +68,18 @@ pagination properly:
 
 1. Connector function signature should yield dicts (one per issue)
 2. Implement: fetch page → yield rows → check Link header → repeat until no `next`
-3. Update pipeline YAML to `type: python`, remove iterate axis (connector handles windowing)
+3. Update collector YAML to `type: python`, remove iterate axis (connector handles windowing)
 4. Run `dcf run github_issues --limit 1` — verify more than 100 rows returned for
    a date window that previously returned exactly 100
 5. Verify schema projection: id, number, title, state, user_login (from user.login),
    label_names (array_join of labels[].name), created_at, updated_at, closed_at
-6. Run full pipeline, verify incremental deduplication on `id`
+6. Run full collector, verify incremental deduplication on `id`
 
 Phase 2 success: confirm Python connector path actually works end-to-end for pagination.
 
 ## Success Criteria
 
-- [ ] Phase 1: Pipeline YAML validates successfully
+- [ ] Phase 1: Collector YAML validates successfully
 - [ ] Phase 1: `--limit 1` run completes (even with truncated data)
 - [ ] Phase 1: Pagination limitation confirmed — row count capped at first page
 - [ ] Phase 2: Python connector fetches all pages for a date window
@@ -106,7 +106,7 @@ Phase 2 success: confirm Python connector path actually works end-to-end for pag
 - **Expected Blocking (Schema):** dcf YAML has no `pagination` field. The HTTP fetcher
   makes exactly one request per iteration. Link-header pagination cannot be expressed
   in YAML — a Python connector is the only option.
-- **Expected Minor (Skill):** `new-pipeline` skill has no guidance on when to use a
+- **Expected Minor (Skill):** `new-collector` skill has no guidance on when to use a
   Python connector vs. HTTP YAML. A first-time user would not know to write a connector
   for a paginated API.
 - **To investigate:** Does `array_join` with `path: labels` produce `[{id: 1, name: bug}]`
@@ -133,9 +133,9 @@ GITHUB_TOKEN is already configured from Round 2. Use it.
   pagination limitation clearly visible
 - For Phase 1, use a date window of exactly 1 week that you know has >100 issues
   (e.g., any recent week for apache/spark). Confirm that exactly 100 rows are returned.
-- For Phase 2, the connector should accept no parameters from the pipeline YAML
+- For Phase 2, the connector should accept no parameters from the collector YAML
   (hardcode the repo and date logic in the connector) OR accept `owner`, `repo`,
-  `since`, `until` as params passed from the pipeline YAML iterate axis.
+  `since`, `until` as params passed from the collector YAML iterate axis.
 - Record the exact connector function signature that dcf expects for `type: python`
   sources — this is important for the skill to eventually document.
 - If `type: python` connector fails to import or run, this is a high-priority finding

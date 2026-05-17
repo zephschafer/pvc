@@ -30,9 +30,9 @@ GET https://api.github.com/repos/apache/spark/commits?since=...&until=...
 
 ### Phase 1 — Characterize 429 Behavior
 
-Set up a pipeline that WILL hit the rate limit:
+Set up a collector that WILL hit the rate limit:
 
-1. Write `pipelines/github_commits_ratelimit.yml` — same as github-commits but
+1. Write `collectors/github_commits_ratelimit.yml` — same as github-commits but
    with no auth (remove token) and a date range wide enough to require >60 requests
    (e.g., daily windows over 3 months = 90+ requests)
 2. Run `dcf run github_commits_ratelimit`
@@ -52,8 +52,8 @@ dcf's YAML schema has a `rate_limit` config field. Test what it actually does:
 
 1. Read `dcf/config/models.py` — what fields does `RateLimit` have?
 2. Read `dcf/engine/fetcher.py` — how is `rate_limit` applied?
-3. Add a `rate_limit` config to the pipeline (e.g., `requests: 1`, `per_minutes: 1`)
-4. Run the pipeline — does the rate limit config prevent 429s by slowing requests?
+3. Add a `rate_limit` config to the collector (e.g., `requests: 1`, `per_minutes: 1`)
+4. Run the collector — does the rate limit config prevent 429s by slowing requests?
 5. Record: does it work? Is the config sufficient to avoid rate limits on GitHub?
 
 Phase 2 success: rate_limit config behavior documented.
@@ -62,8 +62,8 @@ Phase 2 success: rate_limit config behavior documented.
 
 After Phase 1 (partial run with some data in warehouse), attempt to resume:
 
-1. Re-run the same pipeline with GITHUB_TOKEN set (higher rate limit)
-2. Does the incremental strategy correctly pick up from where the pipeline left off?
+1. Re-run the same collector with GITHUB_TOKEN set (higher rate limit)
+2. Does the incremental strategy correctly pick up from where the collector left off?
    Or does it re-fetch all windows from the start?
 3. Verify that the final row count is correct (all commits, not duplicates from retry)
 

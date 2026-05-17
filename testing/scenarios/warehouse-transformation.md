@@ -3,7 +3,7 @@
 ## Goal
 
 Test whether dcf + Claude can replace dbt — i.e., after ingesting data via dcf
-pipelines, can Claude build analytical models (joins, aggregations, CTEs) on top
+collectors, can Claude build analytical models (joins, aggregations, CTEs) on top
 of the dcf warehouse, and can those models be persisted as new tables?
 
 **How dcf's warehouse works:** dcf writes Parquet files to `warehouse/<namespace>/<table>/data/`.
@@ -66,7 +66,7 @@ SELECT ...
 
 1. Use `query_warehouse` MCP tool to run this query (or a version of it)
 2. Identify: what fields are available to join on? Can commits be joined to repos?
-   (This depends on what fields the github_commits pipeline captured.)
+   (This depends on what fields the github_commits collector captured.)
 3. Iterate: if the first query fails, fix and retry — as a dbt user would iterate
    on a model.
 
@@ -81,7 +81,7 @@ Test whether a transformation result can be saved as a new warehouse table:
    COPY (SELECT ...) TO 'warehouse/github/repo_activity/data/part-001.parquet'
    ```
 2. If COPY fails (MCP tool may restrict writes), document the limitation
-3. Attempt an alternative: use the MCP `write_pipeline` tool to create a new pipeline
+3. Attempt an alternative: use the MCP `write_collector` tool to create a new collector
    that produces the transformed data — is this the intended dbt-replacement pattern?
 4. Alternatively: could a Python connector call DuckDB internally and write results?
 
@@ -105,7 +105,7 @@ and document the recommended pattern if it is, or the gap if it isn't.
   calls. Multi-step transformations require a single SQL query.
 - **Join key availability:** github_commits may not have a `repo_name` field that
   can directly join to github_repos.name. The join key depends on what the github_commits
-  pipeline captured. This is the most likely blocker for Phase 2.
+  collector captured. This is the most likely blocker for Phase 2.
 - **MCP write restrictions:** The `query_warehouse` tool likely runs read-only DuckDB.
   A `COPY TO` or `CREATE TABLE AS` may be blocked or require a different tool.
 - **Table discovery:** There is likely no `list_tables` MCP tool. Claude must know
@@ -118,7 +118,7 @@ and document the recommended pattern if it is, or the gap if it isn't.
   building a persistent analytics layer.
 - **Expected MCP gap:** No table discovery tool — Claude cannot autonomously know
   what tables exist without being told or reading the filesystem.
-- **To investigate:** Is the intended dbt-replacement pattern to build a dcf pipeline
+- **To investigate:** Is the intended dbt-replacement pattern to build a dcf collector
   (type: python) that reads from the warehouse with DuckDB and writes a transformed
   result back? If so, this should be documented and the skill should guide users to it.
 - **Enhancement:** A `materialize_model` MCP tool (takes a SQL string, writes result

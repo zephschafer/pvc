@@ -16,7 +16,7 @@ Last updated: 2026-05-14 | Total: 1 | Draft: 0 | Finalized: 1
 
 | ID | Name | Status | Feature | Summary |
 |----|------|--------|---------|---------|
-| batch-deployment | Batch Pipeline Deployment | Finalized | [batch-deployment](../features/batch-deployment.md) | App-centric Terraform module: Dockerfile template in module, `dcf deploy` = `terraform apply` for both local Docker and GCP Cloud Run targets |
+| batch-deployment | Batch Collector Deployment | Finalized | [batch-deployment](../features/batch-deployment.md) | App-centric Terraform module: Dockerfile template in module, `dcf deploy` = `terraform apply` for both local Docker and GCP Cloud Run targets |
 
 ---
 

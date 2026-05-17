@@ -212,12 +212,12 @@ class Deployment(BaseModel):
 
 
 # ------------------------------------------------------------------ #
-# Pipeline (top-level)                                                 #
+# Collector (top-level)                                                #
 # ------------------------------------------------------------------ #
 
-class Pipeline(BaseModel):
+class Collector(BaseModel):
     name: str
-    namespace: str | None = None   # warehouse namespace; defaults to pipeline name when absent
+    namespace: str | None = None   # warehouse namespace; defaults to collector name when absent
     description: str | None = None
     source: Source
     cadence: Cadence
@@ -230,11 +230,11 @@ class Pipeline(BaseModel):
         return super().model_fields_set()
 
     @model_validator(mode="after")
-    def all_dynamic_params_have_iterators(self) -> "Pipeline":
+    def all_dynamic_params_have_iterators(self) -> "Collector":
         if isinstance(self.source, (HttpSource, PythonSource)):
             _validate_dynamic_params(self.source.params, self.cadence.iterate)
         return self
 
     @classmethod
-    def from_dict(cls, data: dict) -> Pipeline:
+    def from_dict(cls, data: dict) -> Collector:
         return cls.model_validate(data)

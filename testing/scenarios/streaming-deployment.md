@@ -1,11 +1,11 @@
-# Scenario: Streaming Pipeline Deployment
+# Scenario: Streaming Collector Deployment
 
 ## Goal
 
-Test the full streaming deployment lifecycle: a pipeline YAML with a Pub/Sub source
+Test the full streaming deployment lifecycle: a collector YAML with a Pub/Sub source
 and `deploy: type: streaming` block is validated, deployed to GCP via `dcf deploy`,
 and a long-running Apache Beam job on Dataflow subscribes to the Pub/Sub topic,
-projects each message through the pipeline schema, and writes windowed Parquet files
+projects each message through the collector schema, and writes windowed Parquet files
 to the GCS warehouse. Then verify that re-deploying is idempotent and `dcf undeploy`
 drains the Dataflow job without touching warehouse data.
 
@@ -16,9 +16,9 @@ the first run will surface Blocking findings that drive development of the
 
 **The core questions this scenario answers:**
 1. Does `dcf validate` accept a `source: type: pubsub` and `deploy: type: streaming`
-   block in the pipeline YAML?
+   block in the collector YAML?
 2. Does `dcf deploy` provision a Dataflow streaming job (not a batch job) from the
-   pipeline YAML?
+   collector YAML?
 3. Do messages published to Pub/Sub appear as Parquet files in the GCS warehouse?
 4. Is re-deploying idempotent — no duplicate Dataflow jobs?
 5. Does `dcf undeploy` drain the Dataflow job cleanly without touching warehouse data?
@@ -26,7 +26,7 @@ the first run will surface Blocking findings that drive development of the
 ## Target Component
 
 This scenario tests dcf's own CLI, GCP provisioning layer, and the new Beam runner —
-not an external third-party API. The pipeline used as the test vehicle is
+not an external third-party API. The collector used as the test vehicle is
 `click_events`: a flat JSON event with five fields, no nesting, no cadence axes,
 keeping schema complexity minimal so failures isolate to the streaming infrastructure.
 
@@ -64,9 +64,9 @@ gcloud pubsub topics publish dcf-test-clicks \
 
 ## Test Phases
 
-### Phase 1 — Pipeline YAML with streaming source and deploy block
+### Phase 1 — Collector YAML with streaming source and deploy block
 
-1. Write `pipelines/click_events.yml` in the test clone:
+1. Write `collectors/click_events.yml` in the test clone:
    ```yaml
    version: 1
    name: click_events
@@ -105,10 +105,10 @@ gcloud pubsub topics publish dcf-test-clicks \
    `deployment.type: streaming` without error?
 3. Verify the schema is checked: remove a required field (e.g. `type:` from a column)
    and confirm validate rejects it, then restore.
-4. Run `dcf validate github_repos` (an existing batch pipeline) — confirm no regression.
+4. Run `dcf validate github_repos` (an existing batch collector) — confirm no regression.
 
 Phase 1 success: `dcf validate click_events` passes and rejects malformed YAML with a
-clear error. Batch pipeline validation is unaffected.
+clear error. Batch collector validation is unaffected.
 
 ### Phase 2 — Prerequisites and `dcf deploy` provisions Dataflow via Terraform
 
@@ -133,20 +133,20 @@ clear error. Batch pipeline validation is unaffected.
 4. Check `project.yml` — was `deployments.click_events` written with `type`,
    `subscription`, `dataflow_job_id`, and `deployed_at`?
 5. **Verify Terraform state** — confirm resources were provisioned via the
-   `streaming_pipeline` Terraform module:
+   `streaming_collector` Terraform module:
    ```bash
-   ls ~/.dcf/terraform/pipelines/click_events/
+   ls ~/.dcf/terraform/collectors/click_events/
    # Expected: main.tf  outputs.tf  terraform.tfstate  terraform.tfvars.json  variables.tf
-   terraform -chdir=~/.dcf/terraform/pipelines/click_events show
+   terraform -chdir=~/.dcf/terraform/collectors/click_events show
    # Expected output contains:
-   #   google_dataflow_flex_template_job.pipeline
+   #   google_dataflow_flex_template_job.collector
    ```
-6. Confirm `dcf deploy` on a pipeline without `deployment:` block exits with a clear error.
+6. Confirm `dcf deploy` on a collector without `deployment:` block exits with a clear error.
 7. Confirm `dcf deploy` without `catalog: gcp` exits with a clear error.
 
 Phase 2 success: `dcf deploy click_events` completes, a Dataflow job is running,
 `project.yml` records the deployment state, and Terraform state at
-`~/.dcf/terraform/pipelines/click_events/` contains the Dataflow job resource.
+`~/.dcf/terraform/collectors/click_events/` contains the Dataflow job resource.
 
 ### Phase 3 — Message ingestion and data verification
 
@@ -160,7 +160,7 @@ Phase 2 success: `dcf deploy click_events` completes, a Dataflow job is running,
        --project <project_id>
    done
    ```
-3. Wait for the window to close — the pipeline is configured with `window_seconds: 60`,
+3. Wait for the window to close — the collector is configured with `window_seconds: 60`,
    so wait at least 70 seconds after publishing.
 4. Check GCS for output files:
    ```bash
@@ -177,7 +177,7 @@ Phase 3 success: at least 10 rows appear in the warehouse within 2 minutes of pu
 
 ### Phase 4 — Idempotency and teardown
 
-1. Run `dcf deploy click_events` a second time — same pipeline YAML, no changes.
+1. Run `dcf deploy click_events` a second time — same collector YAML, no changes.
 2. Confirm no second Dataflow job was created — there should be exactly one
    `JOB_STATE_RUNNING` job:
    ```bash
@@ -186,7 +186,7 @@ Phase 3 success: at least 10 rows appear in the warehouse within 2 minutes of pu
    ```
    (Count must be 1.)
 3. Confirm the Terraform state directory still exists and shows exactly one managed
-   resource: `terraform -chdir=~/.dcf/terraform/pipelines/click_events show`
+   resource: `terraform -chdir=~/.dcf/terraform/collectors/click_events show`
 4. Run `dcf undeploy click_events`.
 5. Confirm the Dataflow job was **drained** (not cancelled) — check job history:
    ```bash
@@ -197,7 +197,7 @@ Phase 3 success: at least 10 rows appear in the warehouse within 2 minutes of pu
    Drain flushes in-flight messages to GCS before stopping; cancel discards them.
 6. **Verify Terraform state directory was removed** by `dcf undeploy`:
    ```bash
-   ls ~/.dcf/terraform/pipelines/click_events/
+   ls ~/.dcf/terraform/collectors/click_events/
    # Expected: No such file or directory
    ```
 7. Confirm warehouse data is NOT deleted — GCS Parquet files remain:
@@ -219,14 +219,14 @@ touching warehouse data.
 
 - [ ] Phase 1: `dcf validate click_events` accepts `source.type: pubsub` and `deployment.type: streaming`
 - [ ] Phase 1: `dcf validate` rejects malformed YAML with a clear error message
-- [ ] Phase 1: `dcf validate` on an existing batch pipeline is unaffected (no regression)
+- [ ] Phase 1: `dcf validate` on an existing batch collector is unaffected (no regression)
 - [ ] Phase 2: `dcf deploy click_events` completes without error
 - [ ] Phase 2: Dataflow job state is `JOB_STATE_RUNNING` after deploy
 - [ ] Phase 2: `project.yml` records `deployments.click_events` with type, subscription, dataflow_job_id
-- [ ] Phase 2: `dcf deploy` on a pipeline with no `deployment:` block exits with a clear error
+- [ ] Phase 2: `dcf deploy` on a collector with no `deployment:` block exits with a clear error
 - [ ] Phase 2: `dcf deploy` without `catalog: gcp` exits with a clear error
-- [ ] Phase 2: Terraform state exists at `~/.dcf/terraform/pipelines/click_events/terraform.tfstate`
-- [ ] Phase 2: `terraform show` lists `google_dataflow_flex_template_job.pipeline`
+- [ ] Phase 2: Terraform state exists at `~/.dcf/terraform/collectors/click_events/terraform.tfstate`
+- [ ] Phase 2: `terraform show` lists `google_dataflow_flex_template_job.collector`
 - [ ] Phase 3: All 10 published messages appear in the warehouse within 2 minutes
 - [ ] Phase 3: Parquet files appear in `gs://<warehouse-bucket>/click_events/click_events/data/`
 - [ ] Phase 3: `timestamp` column is correctly typed (not stored as string)
@@ -238,7 +238,7 @@ touching warehouse data.
 ## Known Complexity
 
 - **Dataflow Flex Template build:** Streaming Dataflow jobs use Flex Templates — the Beam
-  pipeline is packaged as a container image and launched from a template spec. This
+  collector is packaged as a container image and launched from a template spec. This
   requires Cloud Build + Artifact Registry (same as batch) plus generating a Flex
   Template JSON spec and uploading it to GCS. More moving parts than the batch Cloud Run
   job approach.
@@ -262,11 +262,11 @@ touching warehouse data.
 - **Schema projection in streaming:** dcf's current `projector.py` is designed to operate
   on a list of dicts from an HTTP response batch. In streaming, it must operate on
   individual Pub/Sub messages decoded as JSON. This requires a streaming-aware projection
-  layer in the Beam pipeline code.
-- **`append` strategy only:** Streaming pipelines cannot use `incremental` (upsert)
-  strategy — there is no batch to deduplicate within. The pipeline YAML must use
+  layer in the Beam collector code.
+- **`append` strategy only:** Streaming collectors cannot use `incremental` (upsert)
+  strategy — there is no batch to deduplicate within. The collector YAML must use
   `cadence.strategy: append`. `dcf validate` should reject `strategy: incremental` on a
-  streaming pipeline with a clear error.
+  streaming collector with a clear error.
 
 ## Known Expected Findings (Pre-identified)
 
@@ -275,16 +275,16 @@ is entirely unimplemented. Document them and stop — do not attempt to work aro
 missing CLI commands by writing custom Python.
 
 - **Blocking:** `source.type: pubsub` is not a valid source type — `models.py` only
-  knows `http` and `python`. `dcf validate` will reject the pipeline YAML.
+  knows `http` and `python`. `dcf validate` will reject the collector YAML.
 - **Blocking:** `deployment.type` is not a field in the `Deploy` model — `models.py` only
   has `schedule` and `paused`. Validate will reject `type: streaming`.
 - **Blocking:** `dcf deploy` has no streaming code path — it always provisions via the
-  batch path (Cloud Build + Cloud Run + Terraform `batch_pipeline` module).
-- **Blocking:** No `streaming_pipeline` Terraform module exists at
-  `dcf/infra/modules/gcp/streaming_pipeline/`. The batch module provisions
+  batch path (Cloud Build + Cloud Run + Terraform `batch_collector` module).
+- **Blocking:** No `streaming_collector` Terraform module exists at
+  `dcf/infra/modules/gcp/streaming_collector/`. The batch module provisions
   `google_cloud_run_v2_job`; the streaming module must provision
   `google_dataflow_flex_template_job`.
-- **Blocking:** No Beam runner code exists in dcf — there is no Beam pipeline that reads
+- **Blocking:** No Beam runner code exists in dcf — there is no Beam collector that reads
   from Pub/Sub, applies schema projection, and writes windowed Parquet to GCS.
 - **Major:** `dcf undeploy` uses `terraform destroy`, which for a Dataflow job will call
   cancel (not drain). A dedicated drain + poll sequence is needed before `terraform destroy`.
@@ -318,7 +318,7 @@ as the batch-deployment scenario comment block), not as new keys.
 - This scenario tests **entirely unimplemented feature code**. Every Phase 1 and Phase 2
   step will produce Blocking findings. Document them precisely and stop — do not
   work around missing schema fields or CLI commands by writing custom Python.
-- Use `click_events` as the test pipeline — flat JSON, no nesting, no cadence axes.
+- Use `click_events` as the test collector — flat JSON, no nesting, no cadence axes.
   Isolates all failures to the streaming infrastructure layer.
 - The CLONE for this scenario should have `catalog: gcp`, a valid `gcp.warehouse_bucket`,
   and `gcp.setup_status: complete` in `project.yml` — same config as `gcp-data-lake`
