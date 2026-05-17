@@ -1,7 +1,8 @@
 [project]
-name = "dcf"
-version = "0.1.0"
+name = "data-collection-framework"
+version = "0.1.1"
 requires-python = ">=3.12"
+license = {file = "LICENSE"}
 dependencies = [
     "pyspark==4.0.2",
     "pandas",
